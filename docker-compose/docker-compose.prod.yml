@@ -62,7 +62,7 @@ services:
     ports:
       - "10.8.0.1:5432:5432"
     env_file:
-      - ./envs/server.env
+      - ./envs/server.prod.env
     volumes:
       - ./services/postgres-data-prod:/var/lib/postgresql/data
     healthcheck:
