@@ -1,0 +1,96 @@
+# name: 'tea4chat-prod'
+
+services:
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - server
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./ssl/cloudflare:/etc/nginx/ssl/cloudflare:ro
+    networks:
+      - app_network
+
+  frontend:
+    build:
+      context: ../ui
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    networks:
+      - app_network
+    env_file:
+      - ./envs/frontend.env
+
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    expose:
+      - "3000"
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    command: ["./scripts/start.sh"] # try /start-multi-core.sh for multi-core support
+    env_file:
+      - ./envs/server.prod.env
+    networks:
+      - app_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgres:
+    image: postgres:17-alpine
+    expose:
+      - "5432"
+    ports:
+      - "10.8.0.1:5432:5432"
+    env_file:
+      - ./envs/server.env
+    volumes:
+      - ./services/postgres-data-prod:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U postgres -d tea4chat-prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  redis:
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  redis_data:

@@ -1,0 +1,217 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-1.1.x", "darwin-arm64"]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  picture       String? // Google profile picture URL
+  googleId      String?   @unique // Google's unique identifier
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime  @default(now())
+  trackers      Tracker[]
+  owner         Owner? // One-to-one relation with Owner
+  emailVerified Boolean
+  image         String?
+  sessions      Session[]
+  accounts      Account[]
+
+  passkeys Passkey[]
+
+  @@map("user")
+}
+
+model AnonUser {
+  id         String    @id @default(cuid())
+  sessionId  String    @unique
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  lastSeenAt DateTime  @default(now())
+  trackers   Tracker[]
+  owner      Owner? // One-to-one relation with Owner
+}
+
+model Tracker {
+  id         String    @id @default(uuid())
+  sessionId  String
+  ipAddress  String
+  userAgent  String
+  firstSeen  DateTime  @default(now()) // renamed from lastEnter for clarity
+  lastSeen   DateTime  @updatedAt
+  userId     String? // optional link to User
+  anonUserId String? // optional link to AnonUser
+  user       User?     @relation(fields: [userId], references: [id])
+  anonUser   AnonUser? @relation(fields: [anonUserId], references: [id])
+
+  // @@unique([userId, ipAddress, userAgent], name: "userId_ipAddress_userAgent")
+  // @@unique([anonUserId, ipAddress, userAgent], name: "anonUserId_ipAddress_userAgent")
+  @@unique([sessionId, ipAddress, userAgent], name: "sessionId_ipAddress_userAgent")
+  @@index([userId])
+  @@index([anonUserId])
+  @@index([ipAddress])
+}
+
+model Owner {
+  id         String    @id @default(cuid())
+  user       User?     @relation(fields: [userId], references: [id])
+  userId     String?   @unique // Makes it one-to-one
+  anonUser   AnonUser? @relation(fields: [anonUserId], references: [id])
+  anonUserId String?   @unique // Makes it one-to-one
+  chats      Chat[] // One-to-many relation with Chat
+  settings   OwnerSettings?
+  models     ModelCatalog[]   // custom models owned by this user
+  isAdmin    Boolean  @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Chat {
+  id          String    @id @default(cuid())
+  title       String
+  description String
+  createdAt   DateTime  @default(now())
+  isDeleted   Boolean   @default(false)
+  messages    Message[]
+  owner       Owner     @relation(fields: [ownerId], references: [id]) // Relation to Owner instead of User
+  ownerId     String
+
+  // model used for this chat (can override owner's default)
+  modelId    String?
+  model      ModelCatalog? @relation(fields: [modelId], references: [id])
+
+  @@index([ownerId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  from      String
+  text      String?
+
+  // model that produced / will consume this message
+  modelId   String?
+  model     ModelCatalog? @relation(fields: [modelId], references: [id])
+
+  chat      Chat     @relation(fields: [chatId], references: [id])
+  chatId    String
+  createdAt DateTime @default(now())
+
+  @@index([chatId])
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
+
+model Passkey {
+  id           String    @id
+  name         String?
+  publicKey    String
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialID String
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  createdAt    DateTime?
+
+  @@map("passkey")
+}
+
+/// Catalog of all LLM models supported by the system
+model ModelCatalog {
+  id          String   @id @default(cuid())
+  provider    String              // "openai" | "anthropic" | "custom" …
+  name        String              // "gpt-4o", "my-finetune-001", …
+  description String?
+  isEnabled   Boolean  @default(true)
+
+  /* NEW ↓ –– who owns it & who can see it */
+  ownerId     String?             // NULL  → system model
+  owner       Owner?   @relation(fields: [ownerId], references: [id])
+  isPublic    Boolean  @default(false)
+
+  // Optionally hold provider credentials or endpoint for this model
+  endpoint    String?             // e.g. https://api.my-model.com
+  extra       Json?               // e.g. { "apiKeyEnv": "MY_KEY" }
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /* Back-relations */
+  chats     Chat[]
+  messages  Message[]
+  ownersDef OwnerSettings[] @relation("OwnerDefaultModel")
+
+  @@index([ownerId])
+  @@unique([ownerId, name])       // same owner can't register same name twice
+}
+
+/// Per-owner settings (default model, API keys, etc.)
+model OwnerSettings {
+  id              String   @id @default(cuid())
+  owner           Owner    @relation(fields: [ownerId], references: [id])
+  ownerId         String   @unique
+
+  // default model preference
+  defaultModelId  String?
+  model           ModelCatalog? @relation("OwnerDefaultModel", fields: [defaultModelId], references: [id])
+
+  // provider keys (encrypted strings)
+  openaiApiKey     String?
+  anthropicApiKey  String?
+  extra            Json?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

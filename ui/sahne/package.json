@@ -1,0 +1,16 @@
+{
+  "name": "sahne",
+  "type": "module",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "puppeteer": "24.2.1",
+    "sahne-js": "^1.0.4"
+  }
+}

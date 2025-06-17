@@ -1,0 +1,21 @@
+FROM oven/bun:latest
+
+# Install OpenSSL for Prisma
+RUN apt-get update -y && apt-get install -y openssl
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+COPY bun.lock ./
+
+# Install dependencies
+RUN bun install --frozen-lockfile
+
+# Copy source code
+COPY . .
+
+# Make start script executable
+RUN chmod +x ./scripts/start.sh
+
+EXPOSE 3000 

@@ -1,0 +1,79 @@
+{
+  "name": "chat-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:unsafe": "vite build --mode production",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-musl": "4.9.5"
+  },
+  "dependencies": {
+    "@auth0/auth0-react": "^2.3.0",
+    "@codemirror/lang-json": "^6.0.1",
+    "@codemirror/lang-sql": "^6.8.0",
+    "@emotion/react": "^11.10.6",
+    "@emotion/styled": "^11.10.6",
+    "@hono/zod-validator": "^0.5.0",
+    "@mui/icons-material": "^5.13.0",
+    "@mui/material": "^5.13.0",
+    "@react-router/dev": "^7.1.1",
+    "@shadcn/ui": "^0.0.4",
+    "@tanstack/react-query": "^5.71.1",
+    "@tanstack/react-query-devtools": "^5.62.14",
+    "@trpc/client": "^11.0.1",
+    "@trpc/react-query": "^11.0.1",
+    "@trpc/server": "^11.0.1",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@uiw/codemirror-theme-material": "^4.23.7",
+    "@uiw/react-codemirror": "^4.23.7",
+    "autoprefixer": "^10.4.20",
+    "axios": "^1.7.9",
+    "better-auth": "^1.2.7",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dayjs": "^1.11.13",
+    "hono": "^4.7.10",
+    "jwt-decode": "^4.0.0",
+    "lorem-ipsum": "^2.0.8",
+    "lucide-react": "^0.469.0",
+    "openai": "^4.77.0",
+    "postcss": "^8.4.49",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.54.2",
+    "react-icons": "^5.4.0",
+    "react-intersection-observer": "^9.16.0",
+    "react-markdown": "^9.0.1",
+    "react-router-dom": "^7.1.1",
+    "react-syntax-highlighter": "^15.6.1",
+    "socket.io-client": "^4.8.1",
+    "uuid": "^11.0.3",
+    "zod": "^3.24.2",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
+    "msw": "^2.7.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.18.2",
+    "vite": "^6.0.5"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
+}
