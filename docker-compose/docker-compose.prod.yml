@@ -47,7 +47,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-    command: ["./scripts/start.sh"] # try /start-multi-core.sh for multi-core support
+    command: ["./scripts/start-multi-core.sh"] # try /start-multi-core.sh for multi-core support
     env_file:
       - ./envs/server.prod.env
     networks:

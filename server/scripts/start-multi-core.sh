@@ -50,8 +50,12 @@ bunx prisma db seed
 # Start the compiled binary
 CPU_COUNT=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 2)
 echo "Starting $CPU_COUNT Bun workers (reuse-port)..."
-for i in $(seq 1 $CPU_COUNT); do
+
+# Use a simple while loop instead of for loop with seq
+i=1
+while [ $i -le $CPU_COUNT ]; do
   REUSE_PORT=true ./dist/server &
+  i=$((i + 1))
 done
 
 # Wait for any process to exit
