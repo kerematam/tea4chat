@@ -58,5 +58,5 @@ while [ $i -le $CPU_COUNT ]; do
   i=$((i + 1))
 done
 
-# Wait for any process to exit
-wait -n
+# Wait for all background processes
+wait
