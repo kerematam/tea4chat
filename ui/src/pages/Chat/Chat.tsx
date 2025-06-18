@@ -10,7 +10,7 @@ import ModelSelector from "./components/ModelSelector/ModelSelector";
 import { useLocation } from "react-router-dom";
 
 import { useChatMessages, MessageType } from "../../hooks/useChatMessages";
-import Home from "../Home/Home";
+import Landing from "./components/Landing/Landing";
 
 export type SqlTable = {
   columns: string[];
@@ -93,7 +93,7 @@ const Chat = () => {
   }, []);
 
   if (location.pathname === "/") {
-    return <Home onSendMessage={sendMessage} isSending={isSending} />;
+    return <Landing onSendMessage={sendMessage} isSending={isSending} />;
   }
 
   // Show new chat interface when no chatId

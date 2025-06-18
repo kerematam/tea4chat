@@ -12,7 +12,7 @@ import AdminRoute from "./components/AdminRoute";
 
 // Lazy load components
 const Chat = lazy(() => import("./pages/Chat/Chat"));
-const Home = lazy(() => import("./pages/Home/Home"));
+// const Home = lazy(() => import("./pages/Home/Home"));
 const ChatList = lazy(() => import("./pages/ChatList/ChatList"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AdminDashboard = lazy(() => import("./pages/Admin/AdminDashboard"));
