@@ -9,7 +9,7 @@ import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
 
 import { trpc } from "../../services/trpc";
-import dayjs from "dayjs";
+
 import { type MessageType as ServerMessageType } from "../../../../server/src/router/messageRouter";
 
 export type MessageType = Omit<ServerMessageType, "createdAt"> & {
@@ -22,6 +22,7 @@ export type SqlTable = {
 };
 
 type StreamChunk =
+  | { type: "userMessage"; message: MessageType; chatId: string }
   | { type: "aiMessageStart"; message: MessageType }
   | {
       type: "aiMessageChunk";
@@ -278,7 +279,10 @@ const Chat = () => {
 
   // Handle streaming updates from the form
   const handleStreamingUpdate = (chunk: StreamChunk) => {
-    if (chunk.type === "aiMessageStart") {
+    if (chunk.type === "userMessage") {
+      // Add the user message to cache
+      addNewMessages([chunk.message]);
+    } else if (chunk.type === "aiMessageStart") {
       // Add the initial AI message to cache
       addNewMessages([chunk.message]);
     } else if (chunk.type === "aiMessageChunk") {
@@ -311,23 +315,6 @@ const Chat = () => {
     container?.addEventListener("scroll", handleScroll);
     return () => container?.removeEventListener("scroll", handleScroll);
   }, []);
-
-  // Get current model selection for this chat
-  const { data: selectionData } = trpc.model.getSelection.useQuery({ chatId });
-  const selectedModelId = selectionData?.selected?.id;
-
-  // TODO: re-render of this component breaks the streaming
-  const textForm = useMemo(() => {
-    return (
-      <ChatTextForm
-        placeholder="Type your message here..."
-        chatId={chatId}
-        modelId={selectedModelId}
-        onNewMessages={addNewMessages}
-        onStreamingUpdate={handleStreamingUpdate}
-      />
-    );
-  }, [chatId, selectedModelId]);
 
   if (!chatId) {
     return <div>Error: No chat ID provided</div>;
@@ -366,15 +353,11 @@ const Chat = () => {
                 bgcolor: "primary.main",
               }}
             >
-              {message.content} -{" "}
-              {dayjs(message.createdAt).format("DD/MM/YYYY HH:mm:ss")} -{" "}
-              {message.id}
+              {message.content}
             </Box>
           ) : (
             <Box sx={{ width: "100%" }}>
-              <AgentMessage message={message} /> -{" "}
-              {dayjs(message.createdAt).format("DD/MM/YYYY HH:mm:ss")} -{" "}
-              {message.id}
+              <AgentMessage message={message} />
             </Box>
           )}
         </Box>
@@ -469,7 +452,11 @@ const Chat = () => {
           pb: 5,
         }}
       >
-        {textForm}
+        <ChatTextForm
+          placeholder="Type your message here..."
+          chatId={chatId}
+          onStreamingUpdate={handleStreamingUpdate}
+        />
         <ModelSelector chatId={chatId} />
       </Box>
 
