@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 # echo "POSTGRES_USER: $POSTGRES_USER"
@@ -42,11 +42,10 @@ bunx prisma migrate deploy
 echo "Running seed script..."
 bunx prisma db seed
 
-# INFO: keep it alive so that i can debug issues
-# while true; do
-#   sleep 1000
-# done
+# Build the server and cluster binaries
+echo "Building server and cluster binaries..."
+bun run build
 
-# Start the compiled binary
-echo "Starting compiled binary..."
-./dist/server
+# Start compiled cluster binary
+echo "Starting compiled Bun worker cluster..."
+./dist/cluster

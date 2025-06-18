@@ -36,9 +36,6 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 
-# Bun
-bun.lockb
-
 # Prisma
 prisma/*.db
 *.db-journal
