@@ -5,91 +5,227 @@ import {
   CardContent,
   TextField,
   Button,
-  Alert,
+  CircularProgress,
+  Chip,
+  IconButton,
 } from "@mui/material";
 import KeyIcon from "@mui/icons-material/Key";
 import SaveIcon from "@mui/icons-material/Save";
-import { useState } from "react";
+import { Formik, Form, Field, FieldProps } from "formik";
+import * as Yup from "yup";
+import { trpc } from "@/services/trpc";
+import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import { useNotify } from "@/providers/NotificationProdiver/useNotify";
+interface FormValues {
+  openaiApiKey: string;
+  anthropicApiKey: string;
+}
+
+// Validation schema
+const validationSchema = Yup.object({
+  openaiApiKey: Yup.string()
+    .test('format', 'OpenAI API key must start with "sk-"', function(value: string | undefined) {
+      if (!value || value === '') return true; // Allow empty
+      return value.startsWith('sk-');
+    }),
+  anthropicApiKey: Yup.string()
+    .test('format', 'Anthropic API key must start with "sk-ant-"', function(value: string | undefined) {
+      if (!value || value === '') return true; // Allow empty
+      return value.startsWith('sk-ant-');
+    }),
+});
 
 const ApiKeysCard = () => {
-  // API Keys state
-  const [apiKeys, setApiKeys] = useState({
-    openai: "",
-    anthropic: "",
+  const { data: settings, refetch } = trpc.settings.get.useQuery();
+  console.log(settings);
+  const notify = useNotify();
+  
+  const updateApiKeysMutation = trpc.settings.updateApiKeys.useMutation({
+    onSuccess: () => {
+      notify.success("API keys updated successfully!");
+    },
+    onError: (error) => {
+      notify.error(`Failed to update API keys: ${error.message}`);
+    },
   });
-  const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const handleSaveApiKeys = async () => {
-    setSaving(true);
-    try {
-      // TODO: Implement API key saving logic
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (error) {
-      console.error("Failed to save API keys:", error);
-    } finally {
-      setSaving(false);
+  const deleteApiKeysMutation = trpc.settings.deleteApiKeys.useMutation({
+    onSuccess: () => {
+      notify.success("API key deleted successfully!");
+      refetch(); // Refetch settings after successful deletion
+    },
+    onError: (error) => {
+      notify.error(`Failed to delete API key: ${error.message}`);
+    },
+  });
+
+  const handleSubmit = async (values: FormValues, { resetForm }: { resetForm: () => void }) => {
+    const updateData: { openaiApiKey?: string; anthropicApiKey?: string } = {};
+    
+    // Only include fields that have values
+    if (values.openaiApiKey && values.openaiApiKey.trim()) {
+      updateData.openaiApiKey = values.openaiApiKey.trim();
     }
+    
+    if (values.anthropicApiKey && values.anthropicApiKey.trim()) {
+      updateData.anthropicApiKey = values.anthropicApiKey.trim();
+    }
+
+    await updateApiKeysMutation.mutateAsync(updateData);
+    
+    // Reset form to untouched state and refetch data
+    resetForm();
+    refetch();
   };
 
-  return (
-    <Card>
+  const handleDeleteKey = (keyType: 'openai' | 'anthropic') => {
+    const deleteData = {
+      deleteOpenai: keyType === 'openai',
+      deleteAnthropic: keyType === 'anthropic',
+    };
+    
+    deleteApiKeysMutation.mutate(deleteData);
+  };
+
+  if (!settings) {
+    return (
+      <Card>
         <CardContent>
-          <Typography
-            variant="h6"
-            gutterBottom
-            sx={{ display: "flex", alignItems: "center", gap: 1 }}
-          >
-            <KeyIcon />
-            API Keys Management
-          </Typography>
-          
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Add your API keys to use different AI models. Keys are stored securely and never displayed.
-          </Typography>
-
-          {saveSuccess && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              API keys saved successfully!
-            </Alert>
-          )}
-
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <TextField
-              label="OpenAI API Key"
-              type="password"
-              fullWidth
-              value={apiKeys.openai}
-              onChange={(e) => setApiKeys(prev => ({ ...prev, openai: e.target.value }))}
-              placeholder="sk-..."
-              helperText="Enter your OpenAI API key for GPT models"
-            />
-            
-            <TextField
-              label="Anthropic API Key"
-              type="password"
-              fullWidth
-              value={apiKeys.anthropic}
-              onChange={(e) => setApiKeys(prev => ({ ...prev, anthropic: e.target.value }))}
-              placeholder="sk-ant-..."
-              helperText="Enter your Anthropic API key for Claude models"
-            />
-
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleSaveApiKeys}
-              disabled={saving || (!apiKeys.openai.trim() && !apiKeys.anthropic.trim())}
-              sx={{ alignSelf: "flex-start" }}
-            >
-              {saving ? "Saving..." : "Save API Keys"}
-            </Button>
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+            <CircularProgress />
           </Box>
         </CardContent>
       </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent>
+        <Typography
+          variant="h6"
+          gutterBottom
+          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+        >
+          <KeyIcon />
+          API Keys Management
+        </Typography>
+        
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Add your API keys to use different AI models. Keys are stored securely and never displayed.
+        </Typography>
+
+        <Formik
+          initialValues={{
+            openaiApiKey: '',
+            anthropicApiKey: '',
+          }}
+          validationSchema={validationSchema}
+          onSubmit={handleSubmit}
+        >
+          {({ errors, isSubmitting, dirty }) => (
+            <Form>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {/* OpenAI API Key Section */}
+                {settings.hasOpenaiApiKey ? (
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", p: 2, bgcolor: "success.dark", borderRadius: 1, color: "white" }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <Chip 
+                        label="OpenAI API Key" 
+                        color="success" 
+                        variant="filled"
+                        size="small"
+                      />
+                      <Typography variant="body2" color="inherit">
+                        ✓ Configured
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      color="inherit"
+                      size="small"
+                      onClick={() => handleDeleteKey('openai')}
+                      disabled={deleteApiKeysMutation.isPending}
+                      title="Delete OpenAI API Key"
+                    >
+                      <DeleteOutlineOutlinedIcon />
+                    </IconButton>
+                  </Box>
+                ) : (
+                  <Field name="openaiApiKey">
+                    {({ field }: FieldProps<string>) => (
+                      <TextField
+                        {...field}
+                        label="OpenAI API Key"
+                        type="password"
+                        fullWidth
+                        placeholder="sk-..."
+                        helperText={errors.openaiApiKey || "Enter your OpenAI API key for GPT models"}
+                        error={!!errors.openaiApiKey}
+                      />
+                    )}
+                  </Field>
+                )}
+                
+                {/* Anthropic API Key Section */}
+                {settings.hasAnthropicApiKey ? (
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", p: 2, bgcolor: "success.dark", borderRadius: 1, color: "white" }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                      <Chip 
+                        label="Anthropic API Key" 
+                        color="success" 
+                        variant="filled"
+                        size="small"
+                      />
+                      <Typography variant="body2" color="inherit">
+                        ✓ Configured
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      color="inherit"
+                      size="small"
+                      onClick={() => handleDeleteKey('anthropic')}
+                      disabled={deleteApiKeysMutation.isPending}
+                      title="Delete Anthropic API Key"
+                    >
+                      <DeleteOutlineOutlinedIcon />
+                    </IconButton>
+                  </Box>
+                ) : (
+                  <Field name="anthropicApiKey">
+                    {({ field }: FieldProps<string>) => (
+                      <TextField
+                        {...field}
+                        label="Anthropic API Key"
+                        type="password"
+                        fullWidth
+                        placeholder="sk-ant-..."
+                        helperText={errors.anthropicApiKey || "Enter your Anthropic API key for Claude models"}
+                        error={!!errors.anthropicApiKey}
+                      />
+                    )}
+                  </Field>
+                )}
+
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {(!settings.hasOpenaiApiKey || !settings.hasAnthropicApiKey) && (
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      startIcon={isSubmitting ? <CircularProgress size={16} /> : <SaveIcon />}
+                      disabled={!dirty || isSubmitting || !!errors.openaiApiKey || !!errors.anthropicApiKey}
+                      sx={{ alignSelf: "flex-start" }}
+                    >
+                      {isSubmitting ? "Saving..." : "Save API Keys"}
+                    </Button>
+                  )}
+                </Box>
+              </Box>
+            </Form>
+          )}
+        </Formik>
+      </CardContent>
+    </Card>
   );
 };
 
-export default ApiKeysCard; 
+export default ApiKeysCard;
