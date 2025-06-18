@@ -5,6 +5,8 @@ import { PrismaClient, type Message } from "@prisma/client";
 import { cacheHelpers } from "../lib/redis";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import { TRPCError } from "@trpc/server";
+import { ApiKeyError, parseApiError, ErrorCode } from "../lib/errors";
 
 // TODO: type inference from prisma is not working, so we need to manually type
 // the message type for tRPC infinite query compatibility
@@ -21,14 +23,14 @@ export type MessageType = {
 const prisma = new PrismaClient();
 
 // Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// const openai = new OpenAI({
+//   apiKey: process.env.OPENAI_API_KEY,
+// });
 
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// // Initialize Anthropic client
+// const anthropic = new Anthropic({
+//   apiKey: process.env.ANTHROPIC_API_KEY,
+// });
 
 /**
  * React Query optimization - using date-based cursor instead of invalidation
@@ -280,6 +282,12 @@ export const messageRouter = router({
 
         let fullContent = "";
 
+        // Get user's API keys from settings
+        const ownerSettings = await prisma.ownerSettings.findUnique({
+          where: { ownerId: ctx.owner.id },
+          select: { openaiApiKey: true, anthropicApiKey: true },
+        });
+
         // Determine the provider from the model query result
         const selectedProvider = input.modelId ?
           (await prisma.modelCatalog.findUnique({
@@ -290,6 +298,21 @@ export const messageRouter = router({
         if (selectedProvider === "anthropic") {
           console.log("Streaming with Anthropic API");
 
+          // Use user's API key if available, otherwise fall back to environment variable
+          const anthropicApiKey = ownerSettings?.anthropicApiKey // || process.env.ANTHROPIC_API_KEY;
+          if (!anthropicApiKey) {
+            throw new TRPCError({
+              code: 'UNAUTHORIZED',
+              message: 'Anthropic API key not configured. Please add your API key in settings.',
+              cause: { errorCode: ErrorCode.API_KEY_MISSING, provider: 'anthropic' }
+            });
+          }
+
+          // Create Anthropic client with user's API key
+          const userAnthropic = new Anthropic({
+            apiKey: anthropicApiKey,
+          });
+
           // Convert and filter conversation history for Anthropic API
           const anthropicMessages = conversationHistory
             .filter(msg => msg.content && msg.content.trim().length > 0) // Filter out empty messages
@@ -298,55 +321,138 @@ export const messageRouter = router({
               content: msg.content.trim()
             }));
 
-          console.log("Anthropic messages:", JSON.stringify(anthropicMessages, null, 2));
-          console.log("Using Anthropic model:", modelToUse);
+          // console.log("Anthropic messages:", JSON.stringify(anthropicMessages, null, 2));
+          // console.log("Using Anthropic model:", modelToUse);
 
-          // Get streaming response from Anthropic
-          const stream = await anthropic.messages.create({
-            model: modelToUse,
-            messages: anthropicMessages,
-            max_tokens: 4096,
-            stream: true,
-          });
+          try {
+            // Get streaming response from Anthropic
+            const stream = await userAnthropic.messages.create({
+              model: modelToUse,
+              messages: anthropicMessages,
+              max_tokens: 4096,
+              stream: true,
+            });
 
-          // Stream the response chunks from Anthropic
-          for await (const chunk of stream) {
-            if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-              const delta = chunk.delta.text;
-              fullContent += delta;
+            // Stream the response chunks from Anthropic
+            for await (const chunk of stream) {
+              if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+                const delta = chunk.delta.text;
+                fullContent += delta;
 
-              yield {
-                type: "aiMessageChunk" as const,
-                messageId: aiMessage.id,
-                chunk: delta,
-                fullContent,
-              };
+                yield {
+                  type: "aiMessageChunk" as const,
+                  messageId: aiMessage.id,
+                  chunk: delta,
+                  fullContent,
+                };
+              }
+            }
+          } catch (error) {
+            console.error("Anthropic API error:", error);
+            
+            // Convert to TRPCError with custom data
+            const errorMessage = (error as any)?.message || 'Anthropic API error';
+            const statusCode = (error as any)?.status || (error as any)?.response?.status;
+            
+            if (statusCode === 401) {
+              throw new TRPCError({
+                code: 'UNAUTHORIZED',
+                message: 'Invalid Anthropic API key. Please check your API key in settings.',
+                cause: { errorCode: ErrorCode.API_KEY_INVALID, provider: 'anthropic' }
+              });
+            } else if (statusCode === 429) {
+              throw new TRPCError({
+                code: 'TOO_MANY_REQUESTS',
+                message: 'Anthropic rate limit exceeded. Please try again later.',
+                cause: { errorCode: ErrorCode.RATE_LIMIT_EXCEEDED, provider: 'anthropic' }
+              });
+            } else if (statusCode === 402) {
+              throw new TRPCError({
+                code: 'FORBIDDEN',
+                message: 'Anthropic quota exceeded. Please check your billing.',
+                cause: { errorCode: ErrorCode.QUOTA_EXCEEDED, provider: 'anthropic' }
+              });
+            } else {
+              throw new TRPCError({
+                code: 'INTERNAL_SERVER_ERROR',
+                message: errorMessage,
+                cause: { errorCode: ErrorCode.PROVIDER_UNAVAILABLE, provider: 'anthropic' }
+              });
             }
           }
         } else {
           console.log("Streaming with OpenAI API");
 
-          // // Get streaming response from OpenAI
-          const completion = await openai.chat.completions.create({
-            model: modelToUse,
-            messages: conversationHistory,
-            max_tokens: 4096,
-            temperature: 0.7,
-            stream: true,
+          // Use user's API key if available, otherwise fall back to environment variable
+          const openaiApiKey = ownerSettings?.openaiApiKey // || process.env.OPENAI_API_KEY;
+          if (!openaiApiKey) {
+            throw new TRPCError({
+              code: 'UNAUTHORIZED',
+              message: 'OpenAI API key not configured. Please add your API key in settings.',
+              cause: { errorCode: ErrorCode.API_KEY_MISSING, provider: 'openai' }
+            });
+          }
+
+          // Create OpenAI client with user's API key
+          const userOpenAI = new OpenAI({
+            apiKey: openaiApiKey,
           });
 
-          // Stream the response chunks from OpenAI
-          for await (const chunk of completion) {
-            const delta = chunk.choices[0]?.delta?.content || "";
-            if (delta) {
-              fullContent += delta;
+          try {
+            // Get streaming response from OpenAI
+            const completion = await userOpenAI.chat.completions.create({
+              model: modelToUse,
+              messages: conversationHistory,
+              max_tokens: 4096,
+              temperature: 0.7,
+              stream: true,
+            });
 
-              yield {
-                type: "aiMessageChunk" as const,
-                messageId: aiMessage.id,
-                chunk: delta,
-                fullContent,
-              };
+            // Stream the response chunks from OpenAI
+            for await (const chunk of completion) {
+              const delta = chunk.choices[0]?.delta?.content || "";
+              if (delta) {
+                fullContent += delta;
+
+                yield {
+                  type: "aiMessageChunk" as const,
+                  messageId: aiMessage.id,
+                  chunk: delta,
+                  fullContent,
+                };
+              }
+            }
+          } catch (error) {
+            console.error("OpenAI API error:", error);
+            
+            // Convert to TRPCError with custom data
+            const errorMessage = (error as any)?.message || 'OpenAI API error';
+            const statusCode = (error as any)?.status || (error as any)?.response?.status;
+            
+            if (statusCode === 401) {
+              throw new TRPCError({
+                code: 'UNAUTHORIZED',
+                message: 'Invalid OpenAI API key. Please check your API key in settings.',
+                cause: { errorCode: ErrorCode.API_KEY_INVALID, provider: 'openai' }
+              });
+            } else if (statusCode === 429) {
+              throw new TRPCError({
+                code: 'TOO_MANY_REQUESTS',
+                message: 'OpenAI rate limit exceeded. Please try again later.',
+                cause: { errorCode: ErrorCode.RATE_LIMIT_EXCEEDED, provider: 'openai' }
+              });
+            } else if (statusCode === 402) {
+              throw new TRPCError({
+                code: 'FORBIDDEN',
+                message: 'OpenAI quota exceeded. Please check your billing.',
+                cause: { errorCode: ErrorCode.QUOTA_EXCEEDED, provider: 'openai' }
+              });
+            } else {
+              throw new TRPCError({
+                code: 'INTERNAL_SERVER_ERROR',
+                message: errorMessage,
+                cause: { errorCode: ErrorCode.PROVIDER_UNAVAILABLE, provider: 'openai' }
+              });
             }
           }
         }
