@@ -179,108 +179,132 @@ const ModelSelector = ({ chatId }: ModelSelectorProps) => {
             bgcolor: "background.paper",
             borderRadius: 2,
             boxShadow: 24,
-            p: 4,
             maxHeight: "80vh",
-            overflow: "auto",
             outline: "none",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
-          <Typography
-            id="modal-title"
-            variant="h5"
-            sx={{ mb: 3, textAlign: "center" }}
-          >
-            Choose AI Model
-          </Typography>
-
-          {isLoading && (
-            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-              <CircularProgress />
-            </Box>
-          )}
-
-          {error && (
-            <Typography color="error" sx={{ textAlign: "center", p: 2 }}>
-              Failed to load models: {error.message}
+          {/* Header */}
+          <Box sx={{ p: 4, pb: 2 }}>
+            <Typography
+              id="modal-title"
+              variant="h5"
+              sx={{ textAlign: "center" }}
+            >
+              Choose AI Model
             </Typography>
-          )}
+          </Box>
 
-          {modelData &&
-            modelData.providers.map((providerGroup: ProviderGroup) => (
-              <Box key={providerGroup.provider} sx={{ mb: 4 }}>
-                <Typography variant="h6" sx={{ mb: 2, color: "primary.main" }}>
-                  {capitalizeProvider(providerGroup.provider)} Models
-                </Typography>
-                <Grid
-                  container
-                  spacing={2}
-                  role="listbox"
-                  aria-label={`${capitalizeProvider(
-                    providerGroup.provider
-                  )} Models`}
-                >
-                  {providerGroup.models.map((model) => (
-                    <Grid item xs={12} sm={6} key={model.id}>
-                      <Card
-                        component="button"
-                        role="option"
-                        aria-selected={tempSelection?.id === model.id}
-                        tabIndex={0}
-                        sx={{
-                          cursor: "pointer",
-                          transition: "all 0.2s",
-                          border: "1px solid",
-                          borderColor: "divider",
-                          boxShadow:
-                            tempSelection?.id === model.id
-                              ? "0 0 0 2px"
-                              : "none",
-                          color:
-                            tempSelection?.id === model.id
-                              ? "primary.main"
-                              : "currentColor",
-                          backgroundColor: "transparent",
-                          textAlign: "left",
-                          width: "100%",
-                          p: 0,
-                          "&:hover": { boxShadow: 4 },
-                          "&:focus": {
-                            outline: "2px solid",
-                            outlineColor: "primary.main",
-                            outlineOffset: "2px",
-                          },
-                        }}
-                        onClick={() => handleModelSelect(model)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleModelSelect(model);
-                          }
-                        }}
-                      >
-                        <CardContent sx={{ width: "100%" }}>
-                          <Typography variant="h6">{model.name}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {model.description || "No description available"}
-                          </Typography>
-                          {!model.isEnabled && (
-                            <Chip
-                              label="Disabled"
-                              size="small"
-                              color="error"
-                              sx={{ mt: 1 }}
-                            />
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
+          {/* Scrollable Content */}
+          <Box
+            sx={{
+              flex: 1,
+              overflow: "auto",
+              px: 4,
+              pb: 2,
+            }}
+          >
+            {isLoading && (
+              <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+                <CircularProgress />
               </Box>
-            ))}
+            )}
 
+            {error && (
+              <Typography color="error" sx={{ textAlign: "center", p: 2 }}>
+                Failed to load models: {error.message}
+              </Typography>
+            )}
+
+            {modelData &&
+              modelData.providers.map((providerGroup: ProviderGroup) => (
+                <Box key={providerGroup.provider} sx={{ mb: 4 }}>
+                  <Typography variant="h6" sx={{ mb: 2, color: "primary.main" }}>
+                    {capitalizeProvider(providerGroup.provider)} Models
+                  </Typography>
+                  <Grid
+                    container
+                    spacing={2}
+                    role="listbox"
+                    aria-label={`${capitalizeProvider(
+                      providerGroup.provider
+                    )} Models`}
+                  >
+                    {providerGroup.models.map((model) => (
+                      <Grid item xs={12} sm={6} key={model.id}>
+                        <Card
+                          component="button"
+                          role="option"
+                          aria-selected={tempSelection?.id === model.id}
+                          tabIndex={0}
+                          sx={{
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            boxShadow:
+                              tempSelection?.id === model.id
+                                ? "0 0 0 2px"
+                                : "none",
+                            color:
+                              tempSelection?.id === model.id
+                                ? "primary.main"
+                                : "currentColor",
+                            backgroundColor: "transparent",
+                            textAlign: "left",
+                            width: "100%",
+                            p: 0,
+                            "&:hover": { boxShadow: 4 },
+                            "&:focus": {
+                              outline: "2px solid",
+                              outlineColor: "primary.main",
+                              outlineOffset: "2px",
+                            },
+                          }}
+                          onClick={() => handleModelSelect(model)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleModelSelect(model);
+                            }
+                          }}
+                        >
+                          <CardContent sx={{ width: "100%" }}>
+                            <Typography variant="h6">{model.name}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {model.description || "No description available"}
+                            </Typography>
+                            {!model.isEnabled && (
+                              <Chip
+                                label="Disabled"
+                                size="small"
+                                color="error"
+                                sx={{ mt: 1 }}
+                              />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              ))}
+          </Box>
+
+          {/* Sticky Bottom Actions */}
           {modelData && (
-            <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
+            <Box
+              sx={{
+                p: 4,
+                pt: 2,
+                borderTop: "1px solid",
+                borderColor: "divider",
+                bgcolor: "background.paper",
+                display: "flex",
+                justifyContent: "flex-end",
+              }}
+            >
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 spacing={2}
