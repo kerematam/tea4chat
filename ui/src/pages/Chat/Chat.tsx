@@ -350,7 +350,11 @@ const Chat = () => {
                 maxWidth: "70%",
                 p: 2,
                 borderRadius: 2,
-                bgcolor: "primary.main",
+                bgcolor: "background.paper",
+                border: (theme) => 
+                  theme.palette.mode === "light" ? "2px solid" : "none",
+                borderColor: (theme) => 
+                  theme.palette.mode === "light" ? "divider" : "transparent",
               }}
             >
               {message.content}

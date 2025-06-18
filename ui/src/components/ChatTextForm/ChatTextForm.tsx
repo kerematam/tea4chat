@@ -7,6 +7,8 @@ import { trpc } from "../../services/trpc";
 import { useNotify } from "../../providers/NotificationProdiver/useNotify";
 import { type MessageType as ServerMessageType } from "../../../../server/src/router/messageRouter";
 
+import SendIcon from '@mui/icons-material/Send';
+
 type MessageType = Omit<ServerMessageType, "createdAt"> & {
   createdAt: string;
 };
@@ -79,6 +81,10 @@ export const ChatTextForm = ({
         display: "flex",
         alignItems: "center",
         width: "100%",
+        border: (theme) => 
+          theme.palette.mode === "light" 
+            ? `2px solid ${theme.palette.divider}` 
+            : "none",
         background: (theme) => theme.palette.background.paper,
         borderRadius: "4px",
       }}
@@ -91,15 +97,23 @@ export const ChatTextForm = ({
         disabled={isLoading}
         placeholder={placeholder}
       />
-      {/* <Divider sx={{ height: 28, m: 0.5 }} orientation="vertical" /> */}
       <IconButton
         type="submit"
         color="primary"
         disabled={isLoading || !question.trim()}
-        sx={{ p: "10px", "&:focus": { color: "text.primary" }, height: 28 }}
+        sx={{ 
+          p: "10px", 
+          "&:focus": { color: "text.primary" }, 
+          alignSelf: "flex-end",
+          minHeight: 28 
+        }}
         aria-label="send message"
       >
-        {isLoading ? <CircularProgress size={20} color="inherit" /> : "→"}
+        {isLoading ? (
+          <CircularProgress size={20} color="inherit" />
+        ) : (
+          <SendIcon sx={{ fontSize: 20 }} />
+        )}
       </IconButton>
     </Box>
   );

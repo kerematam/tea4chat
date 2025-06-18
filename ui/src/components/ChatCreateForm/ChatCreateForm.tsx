@@ -20,6 +20,10 @@ const ChatCreateForm = ({
         display: "flex",
         alignItems: "center",
         width: "100%",
+        border: (theme) => 
+          theme.palette.mode === "light" ? "2px solid" : "none",
+        borderColor: (theme) => 
+          theme.palette.mode === "light" ? "divider" : "transparent",
         background: (theme) => theme.palette.background.paper,
         borderRadius: "4px",
       }}
