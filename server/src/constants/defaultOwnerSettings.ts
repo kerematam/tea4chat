@@ -14,5 +14,5 @@ export const DEFAULT_OWNER_SETTINGS = {
  * @caveat
  * check model id defined in prisma/seed.ts
  */
-export const FALLBACK_MODEL_ID = "sys_openai_gpt-4o";
+export const FALLBACK_MODEL_ID = "sys_openai_gpt-4o-mini";
  
