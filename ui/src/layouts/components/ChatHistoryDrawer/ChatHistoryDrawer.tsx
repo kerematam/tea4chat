@@ -228,7 +228,7 @@ const ChatHistoryDrawer = ({
       <Box
         sx={{
           flex: 1,
-          width: "100%",
+          width: 300,
           overflowY: "auto",
           "&::-webkit-scrollbar": {
             width: "6px",

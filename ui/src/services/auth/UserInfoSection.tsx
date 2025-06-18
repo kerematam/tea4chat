@@ -60,6 +60,22 @@ const UserInfoSection = () => {
               Sign in with Google
             </Button>
           </Box>
+          <Button
+            onClick={() => navigate("/settings")}
+            variant="outlined"
+            startIcon={<SettingsIcon />}
+            sx={{
+              width: "100%",
+              color: "text.secondary",
+              borderColor: "divider",
+              "&:hover": {
+                borderColor: "text.secondary",
+                backgroundColor: "action.hover",
+              },
+            }}
+          >
+            Settings
+          </Button>
         </Box>
       </Box>
     );
@@ -107,9 +123,15 @@ const UserInfoSection = () => {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Tooltip title="Settings">
             <IconButton
-              sx={{ color: "text.secondary" }}
+              sx={{
+                color: "text.secondary",
+                "&:hover": {
+                  color: "primary.main",
+                  backgroundColor: "action.hover",
+                },
+              }}
               aria-label="settings"
-              size="small"
+              size="medium"
               onClick={() => navigate("/settings")}
             >
               <SettingsIcon />

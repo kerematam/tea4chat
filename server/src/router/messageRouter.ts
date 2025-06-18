@@ -98,6 +98,9 @@ export const messageRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+
+      throw new Error("Not implemented");
+
       if (!ctx.owner) {
         throw new Error("Owner not found");
       }
@@ -324,7 +327,7 @@ export const messageRouter = router({
           console.log("Streaming with Anthropic API");
 
           // Use user's API key if available, otherwise fall back to environment variable
-          const anthropicApiKey = ownerSettings?.anthropicApiKey;
+          const anthropicApiKey = ownerSettings?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
           if (!anthropicApiKey) {
             throw new TRPCError({
               code: 'UNAUTHORIZED',
@@ -407,7 +410,7 @@ export const messageRouter = router({
           console.log("Streaming with OpenAI API");
 
           // Use user's API key if available, otherwise fall back to environment variable
-          const openaiApiKey = ownerSettings?.openaiApiKey;
+          const openaiApiKey = ownerSettings?.openaiApiKey || process.env.OPENAI_API_KEY;
           if (!openaiApiKey) {
             throw new TRPCError({
               code: 'UNAUTHORIZED',
@@ -521,6 +524,9 @@ export const messageRouter = router({
       })
     )
     .query(async function* ({ input, ctx }) {
+
+      throw new Error("Not implemented");
+
       if (!ctx.owner) {
         throw new Error("Owner not found");
       }
@@ -637,7 +643,7 @@ export const messageRouter = router({
           console.log("Streaming with Anthropic API");
 
           // Use user's API key if available, otherwise fall back to environment variable
-          const anthropicApiKey = ownerSettings?.anthropicApiKey // || process.env.ANTHROPIC_API_KEY;
+          const anthropicApiKey = ownerSettings?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
           if (!anthropicApiKey) {
             throw new TRPCError({
               code: 'UNAUTHORIZED',
@@ -722,7 +728,8 @@ export const messageRouter = router({
           console.log("Streaming with OpenAI API");
 
           // Use user's API key if available, otherwise fall back to environment variable
-          const openaiApiKey = ownerSettings?.openaiApiKey // || process.env.OPENAI_API_KEY;
+          console.log("ownerSettings", ownerSettings);
+          const openaiApiKey = ownerSettings?.openaiApiKey || process.env.OPENAI_API_KEY;
           if (!openaiApiKey) {
             throw new TRPCError({
               code: 'UNAUTHORIZED',
