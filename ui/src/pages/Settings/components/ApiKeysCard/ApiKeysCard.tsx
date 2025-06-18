@@ -128,7 +128,7 @@ const ApiKeysCard = () => {
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {/* OpenAI API Key Section */}
                 {settings.hasOpenaiApiKey ? (
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", p: 2, bgcolor: "success.dark", borderRadius: 1, color: "white" }}>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", p: 2, bgcolor: "success.dark", borderRadius: 1, color: "success.contrastText" }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Chip 
                         label="OpenAI API Key" 

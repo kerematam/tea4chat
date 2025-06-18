@@ -117,15 +117,15 @@ const commonThemeOptions: ThemeOptions = {
   },
 };
 
-// Brand colors
+// Brand colors - Warm palette
 export const brandColors = {
-  primary: "#3B82F6", // Modern blue
-  secondary: "#8B5CF6", // Purple accent
-  accent: "#F59E0B", // Warm amber
-  success: "#10B981", // Green
+  primary: "#F97316", // Warm orange
+  secondary: "#EAB308", // Golden yellow
+  accent: "#DC2626", // Warm red
+  success: "#16A34A", // Warm green
   warning: "#F59E0B", // Amber
-  error: "#EF4444", // Red
-  gold: "#F0D174", // Refined gold
+  error: "#DC2626", // Warm red
+  gold: "#FBBF24", // Rich gold
 };
 
 const lightTheme = createTheme({
@@ -133,40 +133,46 @@ const lightTheme = createTheme({
   palette: {
     mode: "light",
     primary: {
-      main: brandColors.primary,
-      light: "#60A5FA",
-      dark: "#1D4ED8",
+      main: "#F97316", // Warm orange
+      light: "#FB923C",
+      dark: "#EA580C",
       contrastText: "#FFFFFF",
     },
     secondary: {
-      main: brandColors.secondary,
-      light: "#A78BFA",
-      dark: "#7C3AED",
+      main: "#EAB308", // Golden yellow
+      light: "#FDE047",
+      dark: "#CA8A04",
       contrastText: "#FFFFFF",
     },
     background: {
-      default: "#FAFBFC",
+      default: "#FEF7ED", // Warm cream
       paper: "#FFFFFF",
     },
     text: {
-      primary: "#1F2937",
-      secondary: "#6B7280",
+      primary: "#451A03", // Warm dark brown
+      secondary: "#92400E", // Warm brown
     },
-    divider: "#E5E7EB",
+    divider: "#FED7AA", // Warm peach divider
+    action: {
+      hover: "rgba(249, 115, 22, 0.04)",
+      selected: "rgba(249, 115, 22, 0.08)",
+      disabled: "rgba(69, 26, 3, 0.26)",
+      disabledBackground: "rgba(69, 26, 3, 0.12)",
+    },
     success: {
-      main: brandColors.success,
-      light: "#34D399",
-      dark: "#059669",
+      main: "#16A34A", // Warm green
+      light: "#22C55E",
+      dark: "#15803D",
     },
     warning: {
-      main: brandColors.warning,
+      main: "#F59E0B", // Amber
       light: "#FBBF24",
       dark: "#D97706",
     },
     error: {
-      main: brandColors.error,
-      light: "#F87171",
-      dark: "#DC2626",
+      main: "#DC2626", // Warm red
+      light: "#EF4444",
+      dark: "#B91C1C",
     },
   },
 });
@@ -176,40 +182,46 @@ const darkTheme = createTheme({
   palette: {
     mode: "dark",
     primary: {
-      main: brandColors.primary,
-      light: "#60A5FA",
-      dark: "#1E3A8A",
-      contrastText: "#FFFFFF",
+      main: "#FB923C", // Warm orange (lighter for dark theme)
+      light: "#FED7AA",
+      dark: "#F97316",
+      contrastText: "#1A0B05",
     },
     secondary: {
-      main: brandColors.secondary,
-      light: "#A78BFA",
-      dark: "#6D28D9",
-      contrastText: "#FFFFFF",
+      main: "#FDE047", // Bright golden yellow
+      light: "#FEF3C7",
+      dark: "#EAB308",
+      contrastText: "#1F1600",
     },
     background: {
-      default: "#0F172A",
-      paper: "#1E293B",
+      default: "#0F172A", // Keep user's preferred background
+      paper: "#1F2937", // Warmer dark paper
     },
     text: {
-      primary: "#F8FAFC",
-      secondary: "#CBD5E1",
+      primary: "#FEF3C7", // Warm cream text
+      secondary: "#D97706", // Warm amber secondary text
     },
-    divider: "#334155",
+    divider: "#92400E", // Warm brown divider
+    action: {
+      hover: "rgba(251, 146, 60, 0.08)", // Warm orange hover
+      selected: "rgba(251, 146, 60, 0.12)",
+      disabled: "rgba(217, 119, 6, 0.3)",
+      disabledBackground: "rgba(217, 119, 6, 0.12)",
+    },
     success: {
-      main: brandColors.success,
-      light: "#34D399",
-      dark: "#047857",
+      main: "#22C55E", // Keep green pleasant
+      light: "#4ADE80",
+      dark: "#16A34A",
     },
     warning: {
-      main: brandColors.warning,
-      light: "#FBBF24",
-      dark: "#B45309",
+      main: "#FBBF24", // Rich gold warning
+      light: "#FDE047",
+      dark: "#F59E0B",
     },
     error: {
-      main: brandColors.error,
-      light: "#F87171",
-      dark: "#B91C1C",
+      main: "#F87171", // Soft coral error
+      light: "#FCA5A5",
+      dark: "#DC2626",
     },
   },
 });

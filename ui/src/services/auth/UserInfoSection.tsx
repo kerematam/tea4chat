@@ -42,11 +42,11 @@ const UserInfoSection = () => {
               display: "flex",
               justifyContent: "center",
               button: {
-                backgroundColor: "#20222C",
-                color: "#fff",
+                backgroundColor: "primary.main",
+                color: "primary.contrastText",
                 textTransform: "none",
                 "&:hover": {
-                  backgroundColor: "#2A2D3A",
+                  backgroundColor: "primary.dark",
                 },
                 width: "100%",
               },

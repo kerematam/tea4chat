@@ -81,6 +81,9 @@ export default function Home() {
               textAlign: "center",
               fontFamily: "Jura, sans-serif",
               fontWeight: "bold",
+              color: "text.secondary",
+              fontSize: "2.5rem",
+              textShadow: "2px 2px 4px rgba(0, 0, 0, 0.1)",
             }}
           >
             Tea 4 Chat
@@ -112,7 +115,7 @@ export default function Home() {
                     key={idx}
                     sx={{
                       justifyContent: "flex-start",
-                      color: "white",
+                      color: "text.secondary",
                       textTransform: "none",
                       mb: 1,
                     }}
@@ -120,7 +123,7 @@ export default function Home() {
                       handleSuggestionClick(questionText);
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: "36px", color: "white" }}>
+                    <ListItemIcon sx={{ minWidth: "36px" }}>
                       →
                     </ListItemIcon>
                     {questionText}

@@ -234,14 +234,14 @@ const ChatHistoryDrawer = ({
             width: "6px",
           },
           "&::-webkit-scrollbar-track": {
-            backgroundColor: "rgba(0,0,0,0.1)",
+            backgroundColor: "action.hover",
           },
           "&::-webkit-scrollbar-thumb": {
-            backgroundColor: "rgba(0,0,0,0.3)",
+            backgroundColor: "divider",
             borderRadius: "3px",
           },
           "&::-webkit-scrollbar-thumb:hover": {
-            backgroundColor: "rgba(0,0,0,0.5)",
+            backgroundColor: "text.secondary",
           },
         }}
       >

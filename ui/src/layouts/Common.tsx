@@ -31,10 +31,11 @@ const CommonLayout = () => {
     >
       <AppBar
         position="static"
+        enableColorOnDark
         elevation={0}
         sx={{
-          bgcolor: "transparent",
-          backgroundImage: "none", // This removes any default background
+          backgroundColor: "transparent",
+          border: "transparent",
         }}
       >
         <Toolbar sx={{ justifyContent: "flex-end" }}>
@@ -44,8 +45,7 @@ const CommonLayout = () => {
             aria-label="menu"
             onClick={toggleDrawer(true)}
             sx={{
-              // TODO: I should not even need to do this. It should handle in the theme.
-              color: "text.secondary",
+              color: "primary.main",
             }}
           >
             <ViewSidebarIcon />

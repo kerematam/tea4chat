@@ -174,7 +174,7 @@ export default function ChatList() {
         </Button>
       </Box>
 
-      <Typography variant="h6" sx={{ color: "white", textAlign: "center" }}>
+      <Typography variant="h6" sx={{ color: "text.primary", textAlign: "center" }}>
         {totalCount} chats
       </Typography>
       <Divider sx={{ mb: 2 }} />

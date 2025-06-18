@@ -405,14 +405,14 @@ const Chat = () => {
           flexDirection: "column-reverse",
           "&::-webkit-scrollbar": { width: "8px" },
           "&::-webkit-scrollbar-track": {
-            background: "rgba(0,0,0,0.1)",
+            background: "action.hover",
             borderRadius: "4px",
           },
           "&::-webkit-scrollbar-thumb": {
-            background: "rgba(255,255,255,0.2)",
+            background: "divider",
             borderRadius: "4px",
             "&:hover": {
-              background: "rgba(255,255,255,0.3)",
+              background: "text.secondary",
             },
           },
         }}
@@ -459,7 +459,8 @@ const Chat = () => {
       <Box
         sx={{
           p: 2,
-          borderTop: "1px solid rgba(255,255,255,0.1)",
+          borderTop: "1px solid",
+          borderColor: "divider",
           bgcolor: "background.default",
           position: "sticky",
           bottom: 0,
