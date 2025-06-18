@@ -10,41 +10,33 @@ import {
 import logo from "../../assets/tea4chat.png";
 
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useNotify } from "../../providers/NotificationProdiver/useNotify";
 import ChatCreateForm from "../../components/ChatCreateForm/ChatCreateForm";
 import { trpc } from "../../services/trpc";
 
-export default function Home() {
+export default function Home({
+  onSendMessage,
+  isSending,
+}: {
+  onSendMessage: (content: string, modelId?: string) => void;
+  isSending: boolean;
+}) {
+  const { data: selectedModel } = trpc.model.getSelection.useQuery({
+    chatId: undefined,
+  });
+  const modelId = selectedModel?.selected?.id;
   const [question, setQuestion] = useState("");
   const [isFocused, setIsFocused] = useState(false);
-  const navigate = useNavigate();
-  const { error } = useNotify();
-
-  // Send message mutation (creates chat if needed)
-  const sendMessage = trpc.message.send.useMutation({
-    onSuccess: (data) => {
-      navigate(`/chat/${data.chatId}`);
-    },
-    onError: (err) => {
-      error(err.message || "Failed to send message");
-    },
-  });
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (question.trim()) {
-      sendMessage.mutate({
-        content: question.trim(),
-      });
+      onSendMessage(question.trim(), modelId);
+      setQuestion("");
     }
   };
 
   const handleSuggestionClick = (questionText: string) => {
     setQuestion(questionText);
-    sendMessage.mutate({
-      content: questionText,
-    });
+    onSendMessage(question.trim(), modelId);
   };
 
   return (
@@ -100,7 +92,7 @@ export default function Home() {
             <ChatCreateForm
               question={question}
               setQuestion={setQuestion}
-              isLoading={sendMessage.isPending}
+              isLoading={isSending}
               handleSubmit={handleSubmit}
             />
             <Collapse in={isFocused}>
@@ -123,9 +115,7 @@ export default function Home() {
                       handleSuggestionClick(questionText);
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: "36px" }}>
-                      →
-                    </ListItemIcon>
+                    <ListItemIcon sx={{ minWidth: "36px" }}>→</ListItemIcon>
                     {questionText}
                   </ListItemButton>
                 ))}

@@ -7,7 +7,7 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { TRPCError } from "@trpc/server";
 import { ErrorCode } from "../lib/errors";
-import { FALLBACK_MODEL_ID } from "../constants/defaultOwnerSettings";
+import { FALLBACK_MODEL, FALLBACK_MODEL_ID } from "../constants/defaultOwnerSettings";
 
 // TODO: type inference from prisma is not working, so we need to manually type
 // the message type for tRPC infinite query compatibility
@@ -239,15 +239,8 @@ export const messageRouter = router({
           },
         });
 
-        // Yield the user message first
-        yield {
-          type: "userMessage" as const,
-          message: userMessage as MessageType,
-          chatId: chatId,
-        };
-
-        // Query the model from the database if modelId is provided
-        let modelToUse = FALLBACK_MODEL_ID;
+        // Query the model from the database early in the process
+        let modelToUse: { provider: string; name: string } = FALLBACK_MODEL;
         if (input.modelId) {
           const model = await prisma.modelCatalog.findUnique({
             where: { id: input.modelId },
@@ -256,12 +249,12 @@ export const messageRouter = router({
 
           if (model) {
             console.log("Found model:", model);
-            if (model.provider === "openai") {
-              modelToUse = model.name;
-              console.log("Using OpenAI model:", modelToUse);
-            } else if (model.provider === "anthropic") {
-              modelToUse = model.name;
-              console.log("Using Anthropic model:", modelToUse);
+            if (model.provider === "openai" || model.provider === "anthropic") {
+              modelToUse = {
+                provider: model.provider,
+                name: model.name,
+              };
+              console.log("Using model:", modelToUse);
             } else {
               console.log("Unsupported provider detected:", model.provider);
               throw new Error(`Provider "${model.provider}" is not currently supported`);
@@ -270,6 +263,18 @@ export const messageRouter = router({
             console.log("Model not found, using fallback:", modelToUse);
           }
         }
+
+        // Ensure modelToUse is properly set
+        if (!modelToUse || !modelToUse.provider || !modelToUse.name) {
+          throw new Error("Invalid model configuration");
+        }
+
+        // Yield the user message first
+        yield {
+          type: "userMessage" as const,
+          message: userMessage as MessageType,
+          chatId: chatId,
+        };
 
         // Prepare conversation history
         const conversationHistory = chat.messages.map((msg) => ({
@@ -297,6 +302,7 @@ export const messageRouter = router({
         yield {
           type: "aiMessageStart" as const,
           message: aiMessage as MessageType,
+          chatId: chatId,
         };
 
         let fullContent = "";
@@ -343,7 +349,7 @@ export const messageRouter = router({
           try {
             // Get streaming response from Anthropic
             const stream = await userAnthropic.messages.create({
-              model: modelToUse,
+              model: modelToUse.name,
               messages: anthropicMessages,
               max_tokens: 4096,
               stream: true,
@@ -360,16 +366,17 @@ export const messageRouter = router({
                   messageId: aiMessage.id,
                   chunk: delta,
                   fullContent,
+                  chatId: chatId,
                 };
               }
             }
           } catch (error) {
             console.error("Anthropic API error:", error);
-            
+
             // Convert to TRPCError with custom data
             const errorMessage = (error as any)?.message || 'Anthropic API error';
             const statusCode = (error as any)?.status || (error as any)?.response?.status;
-            
+
             if (statusCode === 401) {
               throw new TRPCError({
                 code: 'UNAUTHORIZED',
@@ -417,7 +424,7 @@ export const messageRouter = router({
           try {
             // Get streaming response from OpenAI
             const completion = await userOpenAI.chat.completions.create({
-              model: modelToUse,
+              model: modelToUse.name,
               messages: conversationHistory,
               max_tokens: 4096,
               temperature: 0.7,
@@ -435,16 +442,17 @@ export const messageRouter = router({
                   messageId: aiMessage.id,
                   chunk: delta,
                   fullContent,
+                  chatId: chatId,
                 };
               }
             }
           } catch (error) {
             console.error("OpenAI API error:", error);
-            
+
             // Convert to TRPCError with custom data
             const errorMessage = (error as any)?.message || 'OpenAI API error';
             const statusCode = (error as any)?.status || (error as any)?.response?.status;
-            
+
             if (statusCode === 401) {
               throw new TRPCError({
                 code: 'UNAUTHORIZED',
@@ -486,6 +494,7 @@ export const messageRouter = router({
         yield {
           type: "aiMessageComplete" as const,
           message: updatedAiMessage as MessageType,
+          chatId: chatId,
         };
 
         // Invalidate chat cache
@@ -678,11 +687,11 @@ export const messageRouter = router({
             }
           } catch (error) {
             console.error("Anthropic API error:", error);
-            
+
             // Convert to TRPCError with custom data
             const errorMessage = (error as any)?.message || 'Anthropic API error';
             const statusCode = (error as any)?.status || (error as any)?.response?.status;
-            
+
             if (statusCode === 401) {
               throw new TRPCError({
                 code: 'UNAUTHORIZED',
@@ -753,11 +762,11 @@ export const messageRouter = router({
             }
           } catch (error) {
             console.error("OpenAI API error:", error);
-            
+
             // Convert to TRPCError with custom data
             const errorMessage = (error as any)?.message || 'OpenAI API error';
             const statusCode = (error as any)?.status || (error as any)?.response?.status;
-            
+
             if (statusCode === 401) {
               throw new TRPCError({
                 code: 'UNAUTHORIZED',
@@ -864,5 +873,7 @@ export const messageRouter = router({
         direction,
         syncDate,
       };
-    })
+    }),
+
+
 }); 

@@ -43,8 +43,8 @@ function App() {
               <Suspense fallback={<LoadingFallback />}>
                 <Routes>
                   <Route path="/" element={<CommonLayout />}>
-                    <Route index element={<Home />} />
-                    <Route path="chat/:id" element={<Chat />} />
+                    <Route index element={<Chat />} />
+                    <Route path="chat/:id?" element={<Chat />} />
                     <Route path="chat-list" element={<ChatList />} />
                     <Route path="settings" element={<Settings />} />
                     

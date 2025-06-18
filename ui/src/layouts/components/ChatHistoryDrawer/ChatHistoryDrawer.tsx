@@ -24,9 +24,9 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import DeleteOutlineOutlinedIcon from "@mui/icons-material/DeleteOutlineOutlined";
 import EditIcon from "@mui/icons-material/Edit";
+import AddIcon from "@mui/icons-material/Add";
 import { useState, useEffect } from "react";
 import UserInfoSection from "@/services/auth/UserInfoSection";
 import { trpc } from "@/services/trpc";
@@ -341,7 +341,7 @@ const ChatHistoryDrawer = ({
   return (
     <>
       <Drawer anchor="right" open={open} onClose={onClose}>
-        <Box
+        {/* <Box
           sx={{
             p: 2,
             pb: 0,
@@ -355,7 +355,32 @@ const ChatHistoryDrawer = ({
           <HistoryOutlinedIcon />
           <Typography variant="h6">History</Typography>
         </Box>
+         */}
+        {/* New Chat Button */}
         <Box sx={{ px: 2, pt: 1, width: "100%" }}>
+          <Button
+            variant="contained"
+            fullWidth
+            startIcon={<AddIcon />}
+            onClick={() => {
+              navigate('/chat');
+              onClose(); // Close drawer after navigation
+            }}
+            sx={{
+              mb: 1,
+              borderColor: 'divider',
+              color: 'text.primary',
+              '&:hover': {
+                borderColor: 'primary.main',
+                backgroundColor: 'action.hover',
+              }
+            }}
+          >
+            New Chat
+          </Button>
+        </Box>
+        
+        <Box sx={{ px: 2, width: "100%" }}>
           <Divider />
         </Box>
         {content}

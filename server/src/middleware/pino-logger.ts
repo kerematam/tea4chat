@@ -16,7 +16,11 @@ export function pinoLogger(): MiddlewareHandler {
     // Add request ID to log context
     c.set('logContext', { requestId: c.get('requestId') });
 
-    // return next();
+    // Skip logging in development mode, too much noise
+    if (process.env.NODE_ENV === 'development') {
+      return next();
+    }
+    
     return logger(c, next);
   };
 } 
