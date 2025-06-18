@@ -17,6 +17,7 @@ import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import ApiKeysCard from "./components/ApiKeysCard/ApiKeysCard";
 import ChatDataCard from "./components/ChatDataCard/ChatDataCard";
 import AnonymousSessionSync from "./components/AnonymousSessionSync/AnonymousSessionSync";
+import ThemeCard from "./components/ThemeCard/ThemeCard";
 import { authClient } from "@/services/auth/authClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -173,6 +174,11 @@ const Settings = () => {
         {/* Right Main Content */}
         <Grid item xs={12} lg={8}>
           <Grid container spacing={3}>
+            {/* Theme Preferences Card */}
+            <Grid item xs={12}>
+              <ThemeCard />
+            </Grid>
+
             {/* API Keys Management Card */}
             <Grid item xs={12}>
               <ApiKeysCard />

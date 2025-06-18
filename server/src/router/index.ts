@@ -5,6 +5,7 @@ import { trackerRouter } from "./trackerRouter";
 import { chatRouter } from "./chatRouter";
 import { messageRouter } from "./messageRouter";
 import { modelRouter } from "./modelRouter";
+import { settingsRouter } from "./settingsRouter";
 import { getCookie } from "hono/cookie";
 import { auth } from "../auth";
 
@@ -13,6 +14,7 @@ export const appRouter = router({
   chat: chatRouter,
   message: messageRouter,
   model: modelRouter,
+  settings: settingsRouter,
   // hello: withOwnerProcedure
   //   .input(z.object({ name: z.string().optional() }))
   //   .query(async ({ input, ctx }) => {

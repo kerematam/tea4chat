@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { ThemeProvider as MuiThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
-import { darkTheme } from "./index";
+import { darkTheme, lightTheme } from "./index";
 import ThemeContext from "./ThemeContext";
 
 const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const savedTheme = localStorage.getItem("theme");
-    if (savedTheme === undefined) return true;
+    if (savedTheme === null || savedTheme === undefined) return true;
 
     return savedTheme === "dark";
   });
@@ -18,9 +18,11 @@ const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
     localStorage.setItem("theme", newTheme ? "dark" : "light");
   };
 
+  const currentTheme = isDarkMode ? darkTheme : lightTheme;
+
   return (
     <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>
-      <MuiThemeProvider theme={darkTheme}>
+      <MuiThemeProvider theme={currentTheme}>
         <CssBaseline />
         {children}
       </MuiThemeProvider>

@@ -31,7 +31,6 @@ import { useState, useEffect } from "react";
 import UserInfoSection from "@/services/auth/UserInfoSection";
 import { trpc } from "@/services/trpc";
 import { useInView } from "react-intersection-observer";
-import { grey } from "@mui/material/colors";
 import { useNotify } from "@/providers/NotificationProdiver/useNotify";
 
 dayjs.extend(relativeTime);
@@ -377,8 +376,12 @@ const ChatHistoryDrawer = ({
             action cannot be undone.
           </DialogContentText>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteCancel} color="primary">
+        <DialogActions sx={{ gap: 1, p: 2 }}>
+          <Button
+            onClick={handleDeleteCancel}
+            variant="contained"
+            color="primary"
+          >
             Cancel
           </Button>
           <Button
@@ -396,11 +399,6 @@ const ChatHistoryDrawer = ({
         aria-labelledby="edit-dialog-title"
         maxWidth="sm"
         fullWidth
-        sx={{
-          "& .MuiDialog-paper": {
-            background: grey[900],
-          },
-        }}
       >
         <DialogTitle id="edit-dialog-title">Edit Chat Title</DialogTitle>
         <DialogContent>

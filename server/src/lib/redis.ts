@@ -47,6 +47,7 @@ export const cacheHelpers = {
       `chat:list:${ownerId}:${limit}:${cursor || 'initial'}`,
     chat: (chatId: string) => `chat:${chatId}`,
     ownerChats: (ownerId: string) => `owner:${ownerId}:chats`,
+    ownerSettings: (ownerId: string) => `owner:${ownerId}:settings`,
     // Streaming keys
     streamChannel: (chatId: string) => `stream:${chatId}`,
     activeStream: (chatId: string) => `stream:active:${chatId}`,
@@ -97,6 +98,25 @@ export const cacheHelpers = {
   // Invalidate specific chat cache
   invalidateChat: async (chatId: string) => {
     const key = cacheHelpers.keys.chat(chatId);
+    await redis.del(key);
+  },
+
+  // Cache owner settings
+  setOwnerSettings: async (ownerId: string, data: any, ttlSeconds = 300) => {
+    const key = cacheHelpers.keys.ownerSettings(ownerId);
+    await redis.setex(key, ttlSeconds, JSON.stringify(data));
+  },
+
+  // Get cached owner settings
+  getOwnerSettings: async (ownerId: string) => {
+    const key = cacheHelpers.keys.ownerSettings(ownerId);
+    const cached = await redis.get(key);
+    return cached ? JSON.parse(cached) : null;
+  },
+
+  // Invalidate owner settings cache
+  invalidateOwnerSettings: async (ownerId: string) => {
+    const key = cacheHelpers.keys.ownerSettings(ownerId);
     await redis.del(key);
   },
 
