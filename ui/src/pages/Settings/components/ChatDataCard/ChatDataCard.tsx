@@ -217,7 +217,7 @@ const ChatDataCard = () => {
           )}
 
           {/* Temporary JSON Testing Section */}
-          <Box sx={{ mb: 3, p: 2, border: 1, borderColor: "warning.main", borderRadius: 1, backgroundColor: "rgba(255, 193, 7, 0.1)" }}>
+          {/* <Box sx={{ mb: 3, p: 2, border: 1, borderColor: "warning.main", borderRadius: 1, backgroundColor: "rgba(255, 193, 7, 0.1)" }}>
             <Typography variant="subtitle2" gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1, color: "warning.dark" }}>
               <CodeIcon />
               Development: JSON Testing
@@ -248,7 +248,7 @@ const ChatDataCard = () => {
             >
               {processingJson ? "Processing JSON..." : "Test JSON Import"}
             </Button>
-          </Box>
+          </Box> */}
 
           <Divider sx={{ mb: 2 }} />
 

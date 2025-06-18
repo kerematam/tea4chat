@@ -142,12 +142,12 @@ const ApiKeysCard = () => {
                     </Box>
                     <IconButton
                       color="inherit"
-                      size="small"
                       onClick={() => handleDeleteKey('openai')}
                       disabled={deleteApiKeysMutation.isPending}
                       title="Delete OpenAI API Key"
+                      sx={{ p: 1 }}
                     >
-                      <DeleteOutlineOutlinedIcon />
+                      <DeleteOutlineOutlinedIcon fontSize="medium" />
                     </IconButton>
                   </Box>
                 ) : (
@@ -182,12 +182,12 @@ const ApiKeysCard = () => {
                     </Box>
                     <IconButton
                       color="inherit"
-                      size="small"
                       onClick={() => handleDeleteKey('anthropic')}
                       disabled={deleteApiKeysMutation.isPending}
                       title="Delete Anthropic API Key"
+                      sx={{ p: 1 }}
                     >
-                      <DeleteOutlineOutlinedIcon />
+                      <DeleteOutlineOutlinedIcon fontSize="medium" />
                     </IconButton>
                   </Box>
                 ) : (

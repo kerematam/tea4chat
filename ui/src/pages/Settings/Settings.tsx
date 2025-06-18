@@ -122,7 +122,7 @@ const Settings = () => {
                         {profile.user?.email}
                       </Typography>
                     </Box>
-                    <Box sx={{ display: "flex", justifyContent: "center" }}>
+                    <Box sx={{ display: "flex", justifyContent: "center", width: "100%" }}>
                       <Button
                         size="small"
                         variant="contained"
@@ -134,7 +134,7 @@ const Settings = () => {
                           authClient.signOut();
                           navigate("/"); 
                         }}
-                        sx={{ width: "100%" }}
+                        sx={{ width: "100%", maxWidth: "200px" }}
                       >
                         Sign Out
                       </Button>
