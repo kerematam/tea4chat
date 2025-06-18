@@ -7,7 +7,7 @@ import ThemeContext from "./ThemeContext";
 const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const savedTheme = localStorage.getItem("theme");
-    if (savedTheme === null || savedTheme === undefined) return true;
+    if (savedTheme === null || savedTheme === undefined) return false;
 
     return savedTheme === "dark";
   });
