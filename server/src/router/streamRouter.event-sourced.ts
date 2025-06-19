@@ -5,6 +5,7 @@ import { streamHelpers, redisPubSub } from "../lib/redis.event-sourcing";
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "crypto";
 import { createStreamListener } from "../lib/stream-listener.js";
+import { initializeStream } from "../lib/stream-initializer.js";
 
 export const STREAM_TTL = 30;
 
@@ -75,47 +76,21 @@ export const streamRouterEventSourced = router({
           });
         }
 
-        // Check if stream exists in Redis and apply smart recreation rules
-        const existingMeta = await streamHelpers.getStreamMeta(streamId);
-        if (existingMeta) {
-          // Get the last event to check completion status
-          const events = await streamHelpers.getStreamEvents(streamId);
-          const lastEvent = events[events.length - 1];
-          
-          if (lastEvent?.type === 'complete') {
-            // Stream is complete, clean up previous events before recreation
-            console.log(`Stream ${streamId} is complete, cleaning up previous events before recreation`);
-            
-            try {
-              // Clean up all previous events from completed stream
-              await streamHelpers.cleanup.deleteStream(streamId);
-              console.log(`Cleaned up completed stream ${streamId} before recreation`);
-            } catch (error) {
-              console.error(`Error cleaning up completed stream ${streamId}:`, error);
-              // Continue with recreation even if cleanup fails
-            }
-          } else {
-            // Stream is not complete, check timeout
-            const lastActivity = existingMeta.lastActivity || existingMeta.startedAt;
-            const timeSinceLastActivity = Date.now() - new Date(lastActivity).getTime();
-            const timeoutMs = STALE_STREAM_TIMEOUT * 1000;
-            
-            if (timeSinceLastActivity < timeoutMs) {
-              throw new TRPCError({
-                code: "CONFLICT",
-                message: `Stream exists and is not complete. Wait ${Math.ceil((timeoutMs - timeSinceLastActivity) / 1000)}s or until completion.`,
-              });
-            } else {
-              console.log(`Stream ${streamId} timed out (${Math.round(timeSinceLastActivity / 1000)}s > ${STALE_STREAM_TIMEOUT}s), allowing recreation`);
-            }
-          }
-        }
+        // Initialize stream with smart recreation logic
+        const initResult = await initializeStream({
+          streamId,
+          streamConfig: {
+            type: "demo",
+            intervalMs,
+            ownerId: ctx.owner?.id,
+          },
+          staleTimeoutSeconds: STALE_STREAM_TIMEOUT
+        });
 
-        // Create stream using event sourcing (no state accumulation)
-        await streamHelpers.createStream(streamId, {
-          type: "demo",
-          intervalMs,
-          ownerId: ctx.owner?.id,
+        console.log(`Stream ${streamId} initialized:`, {
+          wasRecreated: initResult.wasRecreated,
+          cleanupPerformed: initResult.cleanupPerformed,
+          reason: initResult.reason
         });
 
         let chunkCount = 0;
