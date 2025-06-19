@@ -23,6 +23,7 @@ import {
   Circle,
   CloudDownload,
   EventNote,
+  Timer,
 } from '@mui/icons-material';
 import { trpc } from '../../services/trpc';
 
@@ -40,9 +41,12 @@ export const StreamTestEventSourced: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState<string>('');
   const [streamChunks, setStreamChunks] = useState<StreamData[]>([]);
-  const [intervalMs, setIntervalMs] = useState(1000);
+  const [intervalMs, setIntervalMs] = useState(100);
   const [fromEventId, setFromEventId] = useState<string>('0');
   const [totalEventCount, setTotalEventCount] = useState(0);
+  const [streamStartTime, setStreamStartTime] = useState<Date | null>(null);
+  const [streamEndTime, setStreamEndTime] = useState<Date | null>(null);
+  const [elapsedTime, setElapsedTime] = useState<number>(0);
 
   // Generate stream ID mutation
   const generateStreamId = trpc.streamEventSourced.generateStreamId.useQuery();
@@ -89,19 +93,23 @@ export const StreamTestEventSourced: React.FC = () => {
         if (!hasReceivedEvents) {
           console.log('No events received - stream was already completed or not found');
           setIsStreaming(false);
+          setStreamEndTime(new Date());
         } else {
           // Stream ended naturally (completion/error event arrived but wasn't yielded)
           console.log('Stream ended - completion or error occurred');
           setIsStreaming(false);
+          setStreamEndTime(new Date());
         }
       } catch (error) {
         console.error('Stream processing error:', error);
         setIsStreaming(false);
+        setStreamEndTime(new Date());
       }
     },
     onError: (error) => {
       console.error('Stream listening error:', error);
       setIsStreaming(false);
+      setStreamEndTime(new Date());
     },
   });
 
@@ -124,15 +132,20 @@ export const StreamTestEventSourced: React.FC = () => {
         setStreamContent('');
         setStreamChunks([]);
         setTotalEventCount(0);
+        setStreamStartTime(new Date());
+        setStreamEndTime(null);
+        setElapsedTime(0);
         // Start listening to the stream from beginning
         startListening('0');
       } else if (data.message === 'Stream stopped') {
         setIsStreaming(false);
+        setStreamEndTime(new Date());
       }
     },
     onError: (error) => {
       console.error('Stream management error:', error);
       setIsStreaming(false);
+      setStreamEndTime(new Date());
     },
   });
 
@@ -155,6 +168,25 @@ export const StreamTestEventSourced: React.FC = () => {
       setStreamId(generateStreamId.data.streamId);
     }
   }, [generateStreamId.data, streamId]);
+
+  // Timer effect - updates elapsed time every 100ms while streaming
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    if (streamStartTime && !streamEndTime) {
+      interval = setInterval(() => {
+        const now = new Date();
+        const elapsed = now.getTime() - streamStartTime.getTime();
+        setElapsedTime(elapsed);
+      }, 100);
+    }
+    
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [streamStartTime, streamEndTime]);
 
   const handleStartStream = () => {
     if (!streamId) return;
@@ -185,6 +217,9 @@ export const StreamTestEventSourced: React.FC = () => {
         setTotalEventCount(0);
         setIsStreaming(false);
         setFromEventId('0');
+        setStreamStartTime(null);
+        setStreamEndTime(null);
+        setElapsedTime(0);
       }
     }).catch((error) => {
       console.error('Error generating stream ID:', error);
@@ -227,6 +262,27 @@ export const StreamTestEventSourced: React.FC = () => {
 
   const formatTimestamp = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString();
+  };
+
+  const formatElapsedTime = (milliseconds: number) => {
+    const seconds = Math.floor(milliseconds / 1000);
+    const ms = milliseconds % 1000;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (minutes > 0) {
+      return `${minutes}m ${remainingSeconds}.${Math.floor(ms / 100)}s`;
+    } else {
+      return `${remainingSeconds}.${Math.floor(ms / 100)}s`;
+    }
+  };
+
+  const getCurrentElapsedTime = () => {
+    if (!streamStartTime) return 0;
+    if (streamEndTime) {
+      return streamEndTime.getTime() - streamStartTime.getTime();
+    }
+    return elapsedTime;
   };
 
   return (
@@ -347,6 +403,15 @@ export const StreamTestEventSourced: React.FC = () => {
                     variant="outlined"
                   />
                 </Badge>
+                {streamStartTime && (
+                  <Chip
+                    icon={<Timer />}
+                    label={formatElapsedTime(getCurrentElapsedTime())}
+                    color={streamEndTime ? 'success' : 'primary'}
+                    variant="outlined"
+                    sx={{ fontFamily: 'monospace' }}
+                  />
+                )}
                                  {streamContentQuery.data && (
                    <Chip
                      label={`Saved: ${streamContentQuery.data.eventCount} events`}

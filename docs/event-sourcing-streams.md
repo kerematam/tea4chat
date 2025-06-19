@@ -274,6 +274,42 @@ Result: NO LOST EVENTS!
 
 This ensures **zero message loss** even during high-throughput streaming or slow past event iteration.
 
+## Stream Listener Utility
+
+The complex stream listening logic has been extracted into a clean utility function:
+
+```typescript
+import { createStreamListener } from '../lib/stream-listener.js';
+
+// Clean, simple usage
+const streamListener = createStreamListener({
+  streamId: "my-stream",
+  fromEventId: "0",
+  timeoutMs: 30000
+});
+
+for await (const event of streamListener) {
+  // Handle events
+}
+```
+
+### Benefits of the Utility
+
+✅ **Clean Interface**: Simple async iterable, no complex setup  
+✅ **Encapsulated Complexity**: Race condition handling hidden inside  
+✅ **Reusable**: Can be used outside of tRPC routers  
+✅ **Type Safe**: Full TypeScript support with proper interfaces  
+✅ **Automatic Cleanup**: Handles Redis connections and cleanup  
+
+### Features Included
+
+- Race condition prevention (subscribe-first pattern)
+- Message queuing during past event iteration
+- Automatic completion/error handling
+- Configurable timeouts
+- Resume capability with `fromEventId`
+- Proper Redis connection cleanup
+
 ## Performance Benefits
 
 ### Constant-Size Writes
@@ -418,6 +454,7 @@ console.log(`Active streams in memory: ${stats.inMemoryCount}`);
 
 - **Router**: `server/src/router/streamRouter.event-sourced.ts`
 - **Helpers**: `server/src/lib/redis.event-sourcing.ts` 
+- **Stream Listener**: `server/src/lib/stream-listener.ts` - Clean utility for stream listening
 - **UI Component**: `ui/src/pages/StreamTest/StreamTestEventSourced.tsx`
 - **Types**: Shared between client and server via tRPC
 

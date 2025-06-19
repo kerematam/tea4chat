@@ -4,6 +4,7 @@ import { withOwnerProcedure } from "../procedures";
 import { streamHelpers, redisPubSub } from "../lib/redis.event-sourcing";
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "crypto";
+import { createStreamListener } from "../lib/stream-listener.js";
 
 export const STREAM_TTL = 30;
 
@@ -59,7 +60,7 @@ export const streamRouterEventSourced = router({
       z.object({
         streamId: z.string(),
         action: z.enum(["start", "stop"]),
-        intervalMs: z.number().min(100).max(5000).default(1000),
+        intervalMs: z.number().min(10).max(5000).default(1000),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -146,8 +147,8 @@ export const streamRouterEventSourced = router({
 
             console.log(`Added chunk ${chunkCount} to stream ${streamId}: "${randomText.trim()}"`);
 
-            // Auto-stop after 50 chunks
-            if (chunkCount >= 50) {
+            // Auto-stop after 100 chunks
+            if (chunkCount >= 5000) {
               clearInterval(interval);
               activeStreams.delete(streamId);
 
@@ -201,132 +202,18 @@ export const streamRouterEventSourced = router({
       fromEventId: z.string().optional() // For resuming from specific point
     }))
     .mutation(async function* ({ input }) {
-      const { streamId, fromEventId = '0' } = input;
-
-      // STEP 0: Check if stream is already completed - if so, don't return anything
-      const streamMeta = await streamHelpers.getStreamMeta(streamId);
-      if (!streamMeta) {
-        console.log(`Stream ${streamId} not found, nothing to listen to`);
-        return; // No stream exists, nothing to yield
-      }
-
-      if (streamMeta.status === 'completed') {
-        console.log(`Stream ${streamId} is already completed, nothing to listen to`);
-        return; // Stream is completed, don't yield anything
-      }
-
-      const subscriber = new (await import("ioredis")).default({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
+      const { streamId, fromEventId } = input;
+      
+      // Use the clean utility function that handles all the complexity
+      const streamListener = createStreamListener({
+        streamId,
+        fromEventId,
+        timeoutMs: 30000
       });
 
-      try {
-        // STEP 1: Get ALL past events from Redis Streams (event sourcing!)
-        console.log(`Getting past events for stream ${streamId} from ${fromEventId}`);
-        const pastEvents = await streamHelpers.getStreamEvents(streamId, fromEventId);
-        
-        console.log(`Found ${pastEvents.length} past events`);
-
-        // STEP 2: Subscribe to NEW events FIRST to avoid race condition
-        const channel = streamHelpers.keys.streamChannel(streamId);
-        await subscriber.subscribe(channel);
-
-        const messageQueue: StreamChunk[] = [];
-        let messageResolver: ((value: StreamChunk | null) => void) | null = null;
-
-        subscriber.on('message', (receivedChannel, message) => {
-          if (receivedChannel !== channel) return;
-          
-          try {
-            const event = JSON.parse(message) as StreamChunk;
-            if (event.streamId === streamId) {
-              // During past event yielding, always queue new messages
-              // After past events, use resolver pattern for real-time delivery
-              if (messageResolver) {
-                messageResolver(event);
-                messageResolver = null;
-              } else {
-                messageQueue.push(event);
-              }
-            }
-          } catch (error) {
-            console.error("Error parsing stream event:", error);
-          }
-        });
-
-        // STEP 3: Yield all past events (new events are safely queued meanwhile)
-        for (const event of pastEvents) {
-          if (event.type === 'complete') {
-            console.log(`Found complete event in past events, stream ${streamId} is done`);
-            return; // Stream completed, don't yield anything including past events
-          }
-          
-          if (event.type === 'start') {
-            yield {
-              type: "start",
-              streamId,
-              timestamp: event.timestamp,
-            } as StreamChunk;
-          } else if (event.type === 'chunk') {
-            yield {
-              type: "chunk",
-              streamId,
-              data: { content: event.content },
-              timestamp: event.timestamp,
-              eventId: event.id,
-            } as StreamChunk;
-          }
-        }
-
-        // STEP 4: Stream NEW events as they arrive (including queued ones from during past event iteration)
-        let streaming = true;
-        while (streaming) {
-          const data = await new Promise<StreamChunk | null>((resolve) => {
-            if (messageQueue.length > 0) {
-              resolve(messageQueue.shift()!);
-              return;
-            }
-
-            messageResolver = resolve;
-            
-            // Timeout check - if stream meta expired, stop streaming
-            setTimeout(async () => {
-              if (messageResolver === resolve) {
-                const streamMeta = await streamHelpers.getStreamMeta(streamId);
-                if (!streamMeta) {
-                  resolve(null); // Stream expired
-                }
-                messageResolver = null;
-              }
-            }, 30000);
-          });
-
-          if (data === null) {
-            streaming = false;
-            continue;
-          }
-
-          // If completion event arrives, stop streaming without yielding it
-          if (data.type === "complete") {
-            console.log(`Stream ${streamId} completed during listening, stopping without yielding completion event`);
-            streaming = false;
-            continue;
-          }
-
-          // If error event arrives, stop streaming without yielding it
-          if (data.type === "error") {
-            console.log(`Stream ${streamId} errored during listening, stopping without yielding error event`);
-            streaming = false;
-            continue;
-          }
-
-          // Only yield start/chunk events for ongoing streams
-          yield data;
-        }
-      } finally {
-        await subscriber.unsubscribe();
-        subscriber.disconnect();
+      // Simply yield all events from the utility
+      for await (const event of streamListener) {
+        yield event as StreamChunk;
       }
     }),
 
