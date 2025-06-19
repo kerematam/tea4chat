@@ -23,7 +23,7 @@ export const ChatTextForm = ({
   const hookResult = useChatMessages({
     chatId: chatId!,
     chunkHandlers: {
-      userMessage: (message: MessageType) => {
+      userMessage: () => {
         setQuestion("");
       },
     },

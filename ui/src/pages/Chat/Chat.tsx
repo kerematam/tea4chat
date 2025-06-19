@@ -30,8 +30,6 @@ const useMessagesGrouping = (messages: MessageType[]) => {
   return [prevMessages, newMessages];
 };
 
-const QUERY_LIMIT = 4;
-
 const Chat = () => {
   const location = useLocation();
   const { id: chatId } = useParams<{ id: string }>();
@@ -58,7 +56,6 @@ const Chat = () => {
     isSending,
   } = useChatMessages({
     chatId,
-    limit: QUERY_LIMIT,
     onChatCreated: ({ chatId }: { chatId: string }) => {
       navigate(`/chat/${chatId}`, { replace: true });
     },

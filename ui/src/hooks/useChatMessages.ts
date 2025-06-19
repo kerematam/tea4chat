@@ -35,7 +35,6 @@ type InfiniteQueryData = {
 
 interface UseChatMessagesProps {
   chatId?: string; // Made optional to support chat creation
-  limit?: number;
   onStreamingUpdate?: (chunk: StreamChunk) => void;
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
   chunkHandlers?: {
@@ -46,9 +45,11 @@ interface UseChatMessagesProps {
   };
 }
 
+// TODO: streaming only works on 4
+const QUERY_LIMIT = 20;
+
 export const useChatMessages = ({
   chatId,
-  limit = 4,
   onStreamingUpdate,
   onChatCreated,
   chunkHandlers,
@@ -60,7 +61,7 @@ export const useChatMessages = ({
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
     {
       chatId: chatId!, // Assert non-null since query is disabled when chatId is undefined
-      limit,
+      limit: QUERY_LIMIT,
     },
     {
       initialCursor: new Date().toISOString(),
@@ -71,7 +72,7 @@ export const useChatMessages = ({
       staleTime: 1000 * 60 * 60 * 24 * 7, // 7 days - consider data fresh for longer
       // older messages
       getNextPageParam: (lastPage) => {
-        if (!lastPage || lastPage.messages.length < limit) {
+        if (!lastPage || lastPage.messages.length < QUERY_LIMIT) {
           return undefined;
         }
         return lastPage.messages[0].createdAt;
@@ -127,7 +128,7 @@ export const useChatMessages = ({
     // Match the exact query key structure from React Query devtools
     const queryInput = {
       chatId: activeChatId,
-      limit,
+      limit: QUERY_LIMIT,
       cursor: new Date().toISOString(),
     };
     const currentData = utils.message.getMessages.getInfiniteData(queryInput);
@@ -172,7 +173,7 @@ export const useChatMessages = ({
       ],
       pageParams: [currentData.pages[0]?.syncDate, ...currentData.pageParams],
     });
-  }, [chatId, limit, utils.message.getMessages]);
+  }, [chatId, utils.message.getMessages]);
 
   // Update a specific message in the query cache - COPIED FROM WORKING IMPLEMENTATION
   const updateMessageInCache = useCallback((
@@ -189,7 +190,7 @@ export const useChatMessages = ({
 
     const queryInput = {
       chatId: activeChatId,
-      limit,
+      limit: QUERY_LIMIT,
       cursor: new Date().toISOString(),
     };
     const currentData = utils.message.getMessages.getInfiniteData(queryInput);
@@ -208,13 +209,13 @@ export const useChatMessages = ({
       ...currentData,
       pages: updatedPages,
     });
-  }, [chatId, limit, utils.message.getMessages]);
+  }, [chatId, utils.message.getMessages]);
 
   // Initialize cache for new chat
   const initializeChatCache = useCallback((newChatId: string) => {
     const queryInput = {
       chatId: newChatId,
-      limit,
+      limit: QUERY_LIMIT,
       cursor: new Date().toISOString(),
     };
 
@@ -227,7 +228,7 @@ export const useChatMessages = ({
       }],
       pageParams: [new Date().toISOString()],
     });
-  }, [utils.message.getMessages, limit]);
+  }, [utils.message.getMessages]);
 
   // Send message function (supports chat creation)
   const sendMessage = useCallback((content: string, modelId?: string) => {
@@ -281,7 +282,7 @@ export const useChatMessages = ({
         console.warn("Unknown stream chunk type:", chunk);
         break;
     }
-  }, [addNewMessages, updateMessageInCache, chatId, initializeChatCache, onChatCreated, utils.chat.getAll]);
+  }, [addNewMessages, updateMessageInCache, chatId, initializeChatCache, onChatCreated, utils.chat.getAll, chunkHandlers]);
 
   // Auto-load new messages logic - COPIED FROM WORKING IMPLEMENTATION
   const isInitialLoad = useMemo(
@@ -293,11 +294,11 @@ export const useChatMessages = ({
     if (!messagesQuery.data?.pages?.length || messagesQuery.isFetchingPreviousPage) return false;
 
     const firstPage = messagesQuery.data.pages[0];
-    const hasMoreMessagesToLoad = firstPage?.messages?.length === limit;
+    const hasMoreMessagesToLoad = firstPage?.messages?.length === QUERY_LIMIT;
     const hasMultiplePages = messagesQuery.data.pages.length > 1;
 
     return hasMoreMessagesToLoad && hasMultiplePages;
-  }, [messagesQuery.data?.pages, messagesQuery.isFetchingPreviousPage, limit]);
+  }, [messagesQuery.data?.pages, messagesQuery.isFetchingPreviousPage]);
 
   // Continuous loading effect
   useEffect(() => {
