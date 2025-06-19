@@ -8,6 +8,12 @@ import { randomBytes } from "crypto";
 export const STREAM_TTL = 10; // 10 seconds
 export const STREAM_TIMEOUT = 10; // 10 seconds - timeout for incomplete streams
 
+// we kill streams that have not been updated in 5 seconds on stream creation.
+// this might happen if the stream is not being listened to. keep it shorter
+// than STREAM_TTL. Sincce they will already be cleaned up by redis with
+// STREAM_TTL.
+export const STALE_STREAM_TIMEOUT = 5; 
+
 // Types for stream data
 export type StreamChunk = {
   type: "start" | "chunk" | "complete" | "error";
@@ -78,13 +84,22 @@ export const streamRouterEventSourced = router({
           const lastEvent = events[events.length - 1];
           
           if (lastEvent?.type === 'complete') {
-            // Stream is complete, allow immediate recreation
-            console.log(`Stream ${streamId} is complete, allowing recreation`);
+            // Stream is complete, clean up previous events before recreation
+            console.log(`Stream ${streamId} is complete, cleaning up previous events before recreation`);
+            
+            try {
+              // Clean up all previous events from completed stream
+              await streamHelpers.cleanup.deleteStream(streamId);
+              console.log(`Cleaned up completed stream ${streamId} before recreation`);
+            } catch (error) {
+              console.error(`Error cleaning up completed stream ${streamId}:`, error);
+              // Continue with recreation even if cleanup fails
+            }
           } else {
             // Stream is not complete, check timeout
             const lastActivity = existingMeta.lastActivity || existingMeta.startedAt;
             const timeSinceLastActivity = Date.now() - new Date(lastActivity).getTime();
-            const timeoutMs = STREAM_TIMEOUT * 1000;
+            const timeoutMs = STALE_STREAM_TIMEOUT * 1000;
             
             if (timeSinceLastActivity < timeoutMs) {
               throw new TRPCError({
@@ -155,6 +170,7 @@ export const streamRouterEventSourced = router({
         return { success: true, message: "Stream started", streamId };
 
       } else if (action === "stop") {
+        console.log(`Stopping stream ${streamId}`);
         const interval = activeStreams.get(streamId);
         if (!interval) {
           throw new TRPCError({
@@ -162,13 +178,17 @@ export const streamRouterEventSourced = router({
             message: "Stream not found or already stopped",
           });
         }
+        console.log(`Clearing interval for stream ${streamId}`);
 
         clearInterval(interval);
         activeStreams.delete(streamId);
 
+        console.log(`Completing stream ${streamId}`);
         await streamHelpers.completeStream(streamId, {
           reason: "manual-stop"
         });
+
+        console.log(`Stream ${streamId} stopped`);
 
         return { success: true, message: "Stream stopped", streamId };
       }
@@ -185,6 +205,18 @@ export const streamRouterEventSourced = router({
     .mutation(async function* ({ input }) {
       const { streamId, fromEventId = '0' } = input;
 
+      // STEP 0: Check if stream is already completed - if so, don't return anything
+      const streamMeta = await streamHelpers.getStreamMeta(streamId);
+      if (!streamMeta) {
+        console.log(`Stream ${streamId} not found, nothing to listen to`);
+        return; // No stream exists, nothing to yield
+      }
+
+      if (streamMeta.status === 'completed') {
+        console.log(`Stream ${streamId} is already completed, nothing to listen to`);
+        return; // Stream is completed, don't yield anything
+      }
+
       const subscriber = new (await import("ioredis")).default({
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379'),
@@ -199,7 +231,13 @@ export const streamRouterEventSourced = router({
         console.log(`Found ${pastEvents.length} past events`);
 
         // STEP 2: Yield all past events first (for resume functionality)
+        // But skip if we encounter a complete event - stream shouldn't be listened to
         for (const event of pastEvents) {
+          if (event.type === 'complete') {
+            console.log(`Found complete event in past events, stream ${streamId} is done`);
+            return; // Stream completed, don't yield anything including past events
+          }
+          
           if (event.type === 'start') {
             yield {
               type: "start",
@@ -215,14 +253,6 @@ export const streamRouterEventSourced = router({
               timestamp: event.timestamp,
               eventId: event.id,
             } as StreamChunk;
-          } else if (event.type === 'complete') {
-            yield {
-              type: "complete",
-              streamId,
-              timestamp: event.timestamp,
-              ...event.data,
-            } as StreamChunk;
-            return; // Stream completed, no need to subscribe
           }
         }
 
@@ -279,11 +309,22 @@ export const streamRouterEventSourced = router({
             continue;
           }
 
-          yield data;
-
-          if (data.type === "complete" || data.type === "error") {
+          // If completion event arrives, stop streaming without yielding it
+          if (data.type === "complete") {
+            console.log(`Stream ${streamId} completed during listening, stopping without yielding completion event`);
             streaming = false;
+            continue;
           }
+
+          // If error event arrives, stop streaming without yielding it
+          if (data.type === "error") {
+            console.log(`Stream ${streamId} errored during listening, stopping without yielding error event`);
+            streaming = false;
+            continue;
+          }
+
+          // Only yield start/chunk events for ongoing streams
+          yield data;
         }
       } finally {
         await subscriber.unsubscribe();

@@ -64,11 +64,13 @@ export const StreamTestEventSourced: React.FC = () => {
       console.log('Event-sourced stream listening started');
       let accumulatedContent = '';
       let eventCount = 0;
+      let hasReceivedEvents = false;
       
       try {
         for await (const chunk of streamGenerator) {
           console.log('Stream event received:', chunk);
           eventCount++;
+          hasReceivedEvents = true;
           
           setStreamChunks(prev => [...prev.slice(-19), chunk]); // Keep last 20 events
           setTotalEventCount(eventCount);
@@ -81,13 +83,17 @@ export const StreamTestEventSourced: React.FC = () => {
             // Accumulate delta content from chunks
             accumulatedContent += chunk.content;
             setStreamContent(accumulatedContent);
-          } else if (chunk.type === 'complete') {
-            setIsStreaming(false);
-            console.log('Stream completed');
-          } else if (chunk.type === 'error') {
-            setIsStreaming(false);
-            console.error('Stream error:', chunk.error);
           }
+        }
+        
+        // If no events were received, it means the stream was already completed
+        if (!hasReceivedEvents) {
+          console.log('No events received - stream was already completed or not found');
+          setIsStreaming(false);
+        } else {
+          // Stream ended naturally (completion/error event arrived but wasn't yielded)
+          console.log('Stream ended - completion or error occurred');
+          setIsStreaming(false);
         }
       } catch (error) {
         console.error('Stream processing error:', error);
@@ -292,7 +298,7 @@ export const StreamTestEventSourced: React.FC = () => {
                   color="error"
                   startIcon={<Stop />}
                   onClick={handleStopStream}
-                  disabled={!streamId || !isStreaming || manageStreamMutation.isPending}
+                  disabled={!streamId}
                 >
                   {manageStreamMutation.isPending ? 'Stopping...' : 'Stop Stream'}
                 </Button>
