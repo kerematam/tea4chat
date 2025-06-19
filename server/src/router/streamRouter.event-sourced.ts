@@ -5,13 +5,12 @@ import { streamHelpers, redisPubSub } from "../lib/redis.event-sourcing";
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "crypto";
 
-export const STREAM_TTL = 10; // 10 seconds
-export const STREAM_TIMEOUT = 10; // 10 seconds - timeout for incomplete streams
+export const STREAM_TTL = 30;
 
-// we kill streams that have not been updated in 5 seconds on stream creation.
-// this might happen if the stream is not being listened to. keep it shorter
-// than STREAM_TTL. Sincce they will already be cleaned up by redis with
-// STREAM_TTL.
+// we kill streams that have not been updated in 5 seconds ONLY ON NEW STREAM
+// CREATION. This might happen if the stream is broken and user is trying to
+// recreate it, so we need to kill it quickly. Keep it shorter than STREAM_TTL.
+// Since they will already be cleaned up by redis with STREAM_TTL.
 export const STALE_STREAM_TIMEOUT = 5; 
 
 // Types for stream data
@@ -107,7 +106,7 @@ export const streamRouterEventSourced = router({
                 message: `Stream exists and is not complete. Wait ${Math.ceil((timeoutMs - timeSinceLastActivity) / 1000)}s or until completion.`,
               });
             } else {
-              console.log(`Stream ${streamId} timed out (${Math.round(timeSinceLastActivity / 1000)}s > ${STREAM_TIMEOUT}s), allowing recreation`);
+              console.log(`Stream ${streamId} timed out (${Math.round(timeSinceLastActivity / 1000)}s > ${STALE_STREAM_TIMEOUT}s), allowing recreation`);
             }
           }
         }

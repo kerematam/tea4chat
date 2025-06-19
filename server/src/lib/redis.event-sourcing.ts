@@ -1,10 +1,29 @@
+/**
+ * Redis Event-Sourced Streaming Helpers
+ * 
+ * This module provides event-sourcing capabilities for resumable streaming using Redis Streams.
+ * Unlike traditional state-accumulation approaches, this system stores each chunk as a separate
+ * event, enabling perfect resume functionality and constant-size writes.
+ * 
+ * Key Features:
+ * - Event Sourcing: Each chunk is stored as individual event in Redis Streams
+ * - Resumable: Resume from any event ID using XRANGE
+ * - Constant Performance: O(1) writes regardless of stream length
+ * - Unified TTL: Metadata and events expire together (no orphaned data)
+ * - Real-time: Pub/sub notifications for active listeners
+ * 
+ * Redis Data Structure:
+ * - stream:events:{streamId} - Redis Stream storing individual events
+ * - stream:meta:{streamId} - JSON metadata (status, timestamps, etc.)
+ * - stream:channel:{streamId} - Pub/sub channel for real-time notifications
+ * 
+ * @see docs/event-sourcing-streams.md for complete documentation
+ */
+
 import Redis from 'ioredis';
 
-
-// export const STREAM_COMPLETED_TTL = 3600; // 1 hour for completed streams
-
-// this is used for redis to clean up streams after 1 minute
-export const STREAM_TTL = 60; // 1 minute
+// TTL Configuration
+export const STREAM_TTL = 60; // 1 minute - streams expire after this duration
 
 // Create Redis client
 const redis = new Redis({
