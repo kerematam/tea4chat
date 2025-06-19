@@ -61,7 +61,7 @@ export const useChatMessages = ({
       refetchOnWindowFocus: false, // Don't refetch on window focus
       refetchOnMount: false, // Don't refetch when component mounts
       refetchOnReconnect: true, // Keep this for network issues
-      staleTime: 1000 * 60 * 60, // 1 hour - consider data fresh for longer
+      staleTime: 1000 * 60 * 60 * 24 * 7, // 7 days - consider data fresh for longer
       // older messages
       getNextPageParam: (lastPage) => {
         if (!lastPage || lastPage.messages.length < limit) {
@@ -235,27 +235,40 @@ export const useChatMessages = ({
 
   // Default streaming update handler - COPIED FROM WORKING IMPLEMENTATION
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
-    if (chunk.type === "userMessage") {
-      // If this is a new chat creation, initialize cache first
-      if (!chatId && chunk.chatId) {
-        utils.chat.getAll.invalidate();
-        initializeChatCache(chunk.chatId);
-        onChatCreated?.({ chatId: chunk.chatId });
-      }
-      // Add the user message to cache (use chatId from chunk)
-      addNewMessages([chunk.message], chunk.chatId);
-    } else if (chunk.type === "aiMessageStart") {
-      // Add the initial AI message to cache (use chatId from chunk)
-      addNewMessages([chunk.message], chunk.chatId);
-    } else if (chunk.type === "aiMessageChunk") {
-      // Update the AI message content in cache (use chatId from chunk)
-      updateMessageInCache(chunk.messageId, {
-        content: chunk.fullContent,
-        text: chunk.fullContent,
-      }, chunk.chatId);
-    } else if (chunk.type === "aiMessageComplete") {
-      // Update with final complete message (use chatId from chunk)
-      updateMessageInCache(chunk.message.id, chunk.message, chunk.chatId);
+    switch (chunk.type) {
+      case "userMessage":
+        // If this is a new chat creation, initialize cache first
+        if (!chatId && chunk.chatId) {
+          utils.chat.getAll.invalidate();
+          initializeChatCache(chunk.chatId);
+          onChatCreated?.({ chatId: chunk.chatId });
+        }
+        // Add the user message to cache (use chatId from chunk)
+        addNewMessages([chunk.message], chunk.chatId);
+        break;
+
+      case "aiMessageStart":
+        // Add the initial AI message to cache (use chatId from chunk)
+        addNewMessages([chunk.message], chunk.chatId);
+        break;
+
+      case "aiMessageChunk":
+        // Update the AI message content in cache (use chatId from chunk)
+        updateMessageInCache(chunk.messageId, {
+          content: chunk.fullContent,
+          text: chunk.fullContent,
+        }, chunk.chatId);
+        break;
+
+      case "aiMessageComplete":
+        // Update with final complete message (use chatId from chunk)
+        updateMessageInCache(chunk.message.id, chunk.message, chunk.chatId);
+        break;
+
+      default:
+        // Handle unexpected chunk types gracefully
+        console.warn("Unknown stream chunk type:", chunk);
+        break;
     }
   }, [addNewMessages, updateMessageInCache, chatId, initializeChatCache, onChatCreated, utils.chat.getAll]);
 
