@@ -5,12 +5,13 @@ import CommonLayout from "./layouts/Common";
 import ThemeProvider from "./theme/ThemeProvider";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { queryClient, persister } from "./services/queryClient";
+import { queryClient, persistOptions } from "./services/queryClient";
 import { TrpcProvider } from "./providers/TrpcProvider";
 import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
 import AdminRoute from "./components/AdminRoute";
 import { StreamTest } from "./pages/StreamTest/StreamTest";
 import { StreamTestEventSourced } from "./pages/StreamTest/StreamTestEventSourced";
+import { PersistQueryClientOptions } from "@tanstack/react-query-persist-client";
 
 const Chat = lazy(() => import("./pages/Chat/Chat"));
 const ChatList = lazy(() => import("./pages/ChatList/ChatList"));
@@ -36,17 +37,7 @@ function App() {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{
-        persister,
-        maxAge: 86400000, // 24 hours
-        // INFO: leaving here for debugging
-        // dehydrateOptions: {
-        //   shouldDehydrateQuery: (query) => {
-        //     const shouldPersist = query.state.status === 'success';
-        //     return shouldPersist;
-        //   },
-        // },
-      }}
+      persistOptions={persistOptions as unknown as PersistQueryClientOptions}
     >
       <TrpcProvider>
         <NotificationProvider>
@@ -83,7 +74,6 @@ function App() {
                 </Routes>
               </Suspense>
             </Router>
-
             <ReactQueryDevtools
               initialIsOpen={false}
               buttonPosition="bottom-left"

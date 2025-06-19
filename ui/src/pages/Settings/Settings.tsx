@@ -21,6 +21,7 @@ import ThemeCard from "./components/ThemeCard/ThemeCard";
 import { authClient } from "@/services/auth/authClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { persister } from "@/services/queryClient";
 
 const Settings = () => {
   const { data: profile, isLoading, error } = trpc.profile.useQuery();
@@ -127,10 +128,10 @@ const Settings = () => {
                         size="small"
                         variant="contained"
                         color="error"
-                        onClick={() => {
-                          // Clear all query cache before signing out
+                        onClick={async () => {
+                          persister.removeClient();
                           queryClient.clear();
-                          utils.invalidate();
+
                           authClient.signOut();
                           navigate("/"); 
                         }}

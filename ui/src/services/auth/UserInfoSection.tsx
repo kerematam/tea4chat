@@ -10,6 +10,7 @@ import {
 import SettingsIcon from "@mui/icons-material/Settings";
 import { authClient } from "@/services/auth/authClient";
 import { useNavigate } from "react-router-dom";
+import { persister, queryClient } from "../queryClient";
 
 const UserInfoSection = () => {
   const { data: session } = authClient.useSession();
@@ -55,6 +56,8 @@ const UserInfoSection = () => {
             <Button
               onClick={() => {
                 handleSignUp();
+                persister.removeClient();
+                queryClient.clear();
               }}
             >
               Sign in with Google
