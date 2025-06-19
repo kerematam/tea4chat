@@ -93,7 +93,9 @@ export const streamRouterEventSourced = router({
             intervalMs,
             ownerId: ctx.owner?.id,
           },
-          staleTimeoutSeconds: STALE_STREAM_TIMEOUT
+          staleTimeoutSeconds: STALE_STREAM_TIMEOUT,
+          activeStreamsMap: activeStreams,
+          activeControllersMap: activeControllers
         });
 
         console.log(`Stream ${streamId} initialized:`, {
@@ -102,34 +104,17 @@ export const streamRouterEventSourced = router({
           reason: streamController.initializationResult.reason
         });
 
-        // Set up the stop callback to handle interval cleanup
-        streamController.setStopCallback(async (streamId, reason) => {
-          console.log(`Stopping stream ${streamId} via controller, reason: ${reason}`);
-          const interval = activeStreams.get(streamId);
-          if (interval) {
-            clearInterval(interval);
-            activeStreams.delete(streamId);
-          }
-          
-          // Complete the stream in Redis and clean up controller
-          activeControllers.delete(streamId);
-          return await streamHelpers.completeStream(streamId, {
-            reason: reason || "controller-stop"
-          });
-        });
+        // No callbacks needed - controller handles everything internally
 
         let chunkCount = 0;
 
         // Start streaming - each chunk is a separate event
         const interval = setInterval(async () => {
           try {
-            // Check if stream still exists (TTL-based cleanup)
+            // Check if stream still exists (TTL-based cleanup handled by controller)
             const streamMeta = await streamController.getMeta();
             if (!streamMeta) {
-              console.log(`Stream ${streamId} expired, stopping...`);
-              clearInterval(interval);
-              activeStreams.delete(streamId);
-              activeControllers.delete(streamId);
+              // Stream expired - cleanup handled automatically by getMeta()
               return;
             }
 
@@ -144,31 +129,23 @@ export const streamRouterEventSourced = router({
             });
             
             if (!result) {
-              // Stream expired
-              clearInterval(interval);
-              activeStreams.delete(streamId);
-              activeControllers.delete(streamId);
+              // Stream expired - cleanup handled automatically
               return;
             }
 
             console.log(`Added chunk ${chunkCount} to stream ${streamId}: "${randomText.trim()}"`);
 
-            // Auto-stop after 100 chunks
+            // Auto-stop after 5000 chunks
             if (chunkCount >= 5000) {
-                          clearInterval(interval);
-            activeStreams.delete(streamId);
-            activeControllers.delete(streamId);
-
-            await streamController.complete({
-              totalChunks: chunkCount,
-              reason: "auto-completed"
-            });
+              await streamController.complete({
+                totalChunks: chunkCount,
+                reason: "auto-completed"
+              });
             }
           } catch (error) {
             console.error("Stream error:", error);
-            clearInterval(interval);
-            activeStreams.delete(streamId);
-            activeControllers.delete(streamId);
+            // Use proper terminate method for automatic cleanup
+            await streamController.terminate("error");
           }
         }, intervalMs);
 
@@ -187,8 +164,8 @@ export const streamRouterEventSourced = router({
           });
         }
 
-        // Use the controller's stop method - this will handle cleanup automatically
-        await controller.stop("manual-stop");
+        // Use the controller's terminate method - this will handle cleanup automatically
+        await controller.terminate("manual-stop");
 
         console.log(`Stream ${streamId} stopped via controller`);
 

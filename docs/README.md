@@ -2,17 +2,25 @@
 
 ## Streaming System Documentation
 
-### 📖 [Event-Sourced Streaming Guide](./event-sourcing-streams.md)
-**Complete documentation for the Redis Event-Sourced Streaming system**
+### 🎯 [StreamController System](./stream-controller.md)
+**High-level type-safe streaming interface - START HERE**
 
-This is the main documentation covering:
-- Architecture and core concepts
-- API endpoints and usage patterns
+The recommended way to work with streams:
+- Type-safe generic interface with full TypeScript support
+- Self-contained lifecycle management (push, stop, complete)
+- Smart stream initialization and recreation logic
+- Comprehensive usage patterns and real-world examples
+- Best practices and error handling patterns
+
+### 📖 [Event-Sourced Streaming Guide](./event-sourcing-streams.md)
+**Lower-level Redis implementation details**
+
+Deep dive into the underlying implementation:
+- Redis Streams architecture and internals
 - TTL management and cleanup strategies
-- Client integration examples
-- Performance benefits and best practices
-- Monitoring and debugging techniques
-- Complete code examples
+- Performance benefits and comparisons
+- Advanced monitoring and debugging techniques
+- Direct Redis integration examples
 
 ### 🚀 [Router Quick Start](../server/src/router/README.md)
 **Quick comparison and getting started guide**

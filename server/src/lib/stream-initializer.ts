@@ -1,8 +1,39 @@
 /**
  * Stream Initialization Utility
  * 
- * Handles the complex logic of initializing streams with proper cleanup
- * and validation of existing streams.
+ * This module provides a high-level, type-safe interface for managing Redis-based
+ * event-sourced streams. It handles complex initialization logic, provides automatic
+ * cleanup, and offers a clean controller-based API.
+ * 
+ * ## Key Features:
+ * - **Type Safety**: Full TypeScript generics support for stream data
+ * - **Smart Initialization**: Handles existing streams, timeouts, and cleanup
+ * - **Self-Contained**: Controller manages its own lifecycle and cleanup
+ * - **Flexible**: Works with any data structure via generics
+ * 
+ * ## Basic Usage:
+ * ```typescript
+ * interface MyData {
+ *   content: string;
+ *   userId: string;
+ * }
+ * 
+ * const controller = await initializeStream<MyData>({
+ *   streamId: 'my-stream',
+ *   streamConfig: { type: 'demo', intervalMs: 1000 },
+ *   staleTimeoutSeconds: 30
+ * });
+ * 
+ * await controller.push({ content: 'Hello', userId: 'user-123' });
+ * await controller.stop('finished');
+ * ```
+ * 
+ * ## Documentation:
+ * For comprehensive documentation, examples, and best practices, see:
+ * - docs/stream-controller.md - Complete API reference and usage guide
+ * - docs/event-sourcing-streams.md - Lower-level implementation details
+ * 
+ * @see {@link https://github.com/your-repo/docs/stream-controller.md}
  */
 
 import { TRPCError } from "@trpc/server";
@@ -11,8 +42,28 @@ import { streamHelpers } from "./redis.event-sourcing.js";
 /**
  * Creates a StreamController with methods bound to a specific stream ID
  */
-function createStreamController<T = any>(streamId: string, initResult: StreamInitializationResult): StreamController<T> {
-  let stopCallback: StreamStopCallback | null = null;
+function createStreamController<T = any>(
+  streamId: string, 
+  initResult: StreamInitializationResult,
+  activeStreamsMap?: Map<string, NodeJS.Timeout>,
+  activeControllersMap?: Map<string, any>
+): StreamController<T> {
+  // Built-in cleanup function
+  const cleanup = () => {
+    if (activeStreamsMap?.has(streamId)) {
+      const interval = activeStreamsMap.get(streamId);
+      if (interval) {
+        clearInterval(interval);
+        activeStreamsMap.delete(streamId);
+        console.log(`Cleared interval for stream ${streamId}`);
+      }
+    }
+    
+    if (activeControllersMap?.has(streamId)) {
+      activeControllersMap.delete(streamId);
+      console.log(`Removed controller for stream ${streamId}`);
+    }
+  };
 
   return {
     streamId,
@@ -20,21 +71,32 @@ function createStreamController<T = any>(streamId: string, initResult: StreamIni
       // Pass the entire data object to Redis for storage
       return streamHelpers.addChunk(streamId, data);
     },
-    complete: (metadata?: object) => streamHelpers.completeStream(streamId, metadata),
-    stop: async (reason?: string) => {
-      if (stopCallback) {
-        return await stopCallback(streamId, reason);
-      } else {
-        // Fallback: just complete the stream
-        return await streamHelpers.completeStream(streamId, { reason: reason || 'manual-stop' });
-      }
+    complete: async (metadata?: object) => {
+      // Always cleanup when completing
+      cleanup();
+      return await streamHelpers.completeStream(streamId, metadata);
     },
-    getMeta: () => streamHelpers.getStreamMeta(streamId),
+    terminate: async (reason?: string) => {
+      // Always cleanup when terminating
+      cleanup();
+      
+      // Complete the stream with termination reason
+      return await streamHelpers.completeStream(streamId, { reason: reason || 'terminated' });
+    },
+    getMeta: async () => {
+      const meta = await streamHelpers.getStreamMeta(streamId);
+      
+      // If stream expired, trigger built-in cleanup
+      if (!meta) {
+        console.log(`Stream ${streamId} expired, triggering cleanup`);
+        cleanup();
+      }
+      
+      return meta;
+    },
     getEvents: (fromId?: string) => streamHelpers.getStreamEvents(streamId, fromId),
     initializationResult: initResult,
-    setStopCallback: (callback: StreamStopCallback) => {
-      stopCallback = callback;
-    },
+    cleanup,
   };
 }
 
@@ -46,6 +108,8 @@ export interface StreamInitializationOptions {
     ownerId?: string;
   };
   staleTimeoutSeconds: number;
+  activeStreamsMap?: Map<string, NodeJS.Timeout>;
+  activeControllersMap?: Map<string, any>;
 }
 
 export interface StreamInitializationResult {
@@ -54,19 +118,19 @@ export interface StreamInitializationResult {
   reason: 'new' | 'completed-cleanup' | 'timeout-recreation';
 }
 
-export interface StreamStopCallback {
-  (streamId: string, reason?: string): Promise<{ timestamp: string; }>;
-}
+
+
+
 
 export interface StreamController<T = any> {
   streamId: string;
   push: (data: T) => Promise<{ eventId: string | null; timestamp: string; } | null>;
   complete: (metadata?: object) => Promise<{ timestamp: string; }>;
-  stop: (reason?: string) => Promise<{ timestamp: string; }>;
+  terminate: (reason?: string) => Promise<{ timestamp: string; }>;
   getMeta: () => Promise<any>;
   getEvents: (fromId?: string) => Promise<any[]>;
   initializationResult: StreamInitializationResult;
-  setStopCallback: (callback: StreamStopCallback) => void;
+  cleanup: () => void;
 }
 
 /**
@@ -85,7 +149,7 @@ export interface StreamController<T = any> {
 export async function initializeStream<T = any>(
   options: StreamInitializationOptions
 ): Promise<StreamController<T>> {
-  const { streamId, streamConfig, staleTimeoutSeconds } = options;
+  const { streamId, streamConfig, staleTimeoutSeconds, activeStreamsMap, activeControllersMap } = options;
 
   // Check if stream exists in Redis
   const existingMeta = await streamHelpers.getStreamMeta(streamId);
@@ -98,7 +162,7 @@ export async function initializeStream<T = any>(
       cleanupPerformed: false,
       reason: 'new' as const
     };
-    return createStreamController<T>(streamId, initResult);
+    return createStreamController<T>(streamId, initResult, activeStreamsMap, activeControllersMap);
   }
 
   // Stream exists, check completion status
@@ -126,7 +190,7 @@ export async function initializeStream<T = any>(
       cleanupPerformed,
       reason: 'completed-cleanup' as const
     };
-    return createStreamController<T>(streamId, initResult);
+    return createStreamController<T>(streamId, initResult, activeStreamsMap, activeControllersMap);
   }
 
   // Stream is not complete, check timeout
