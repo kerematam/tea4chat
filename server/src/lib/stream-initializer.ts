@@ -11,17 +11,30 @@ import { streamHelpers } from "./redis.event-sourcing.js";
 /**
  * Creates a StreamController with methods bound to a specific stream ID
  */
-function createStreamController(streamId: string, initResult: StreamInitializationResult): StreamController {
+function createStreamController<T = any>(streamId: string, initResult: StreamInitializationResult): StreamController<T> {
+  let stopCallback: StreamStopCallback | null = null;
+
   return {
     streamId,
-    push: (data: StreamEventData) => {
+    push: (data: T) => {
       // Pass the entire data object to Redis for storage
       return streamHelpers.addChunk(streamId, data);
     },
     complete: (metadata?: object) => streamHelpers.completeStream(streamId, metadata),
+    stop: async (reason?: string) => {
+      if (stopCallback) {
+        return await stopCallback(streamId, reason);
+      } else {
+        // Fallback: just complete the stream
+        return await streamHelpers.completeStream(streamId, { reason: reason || 'manual-stop' });
+      }
+    },
     getMeta: () => streamHelpers.getStreamMeta(streamId),
     getEvents: (fromId?: string) => streamHelpers.getStreamEvents(streamId, fromId),
     initializationResult: initResult,
+    setStopCallback: (callback: StreamStopCallback) => {
+      stopCallback = callback;
+    },
   };
 }
 
@@ -41,18 +54,19 @@ export interface StreamInitializationResult {
   reason: 'new' | 'completed-cleanup' | 'timeout-recreation';
 }
 
-export interface StreamEventData {
-  content?: string;
-  [key: string]: any; // Allow any additional properties
+export interface StreamStopCallback {
+  (streamId: string, reason?: string): Promise<{ timestamp: string; }>;
 }
 
-export interface StreamController {
+export interface StreamController<T = any> {
   streamId: string;
-  push: (data: StreamEventData) => Promise<{ eventId: string | null; timestamp: string; } | null>;
+  push: (data: T) => Promise<{ eventId: string | null; timestamp: string; } | null>;
   complete: (metadata?: object) => Promise<{ timestamp: string; }>;
+  stop: (reason?: string) => Promise<{ timestamp: string; }>;
   getMeta: () => Promise<any>;
   getEvents: (fromId?: string) => Promise<any[]>;
   initializationResult: StreamInitializationResult;
+  setStopCallback: (callback: StreamStopCallback) => void;
 }
 
 /**
@@ -68,9 +82,9 @@ export interface StreamController {
  * @returns StreamController with methods bound to the specific stream
  * @throws TRPCError if stream cannot be initialized
  */
-export async function initializeStream(
+export async function initializeStream<T = any>(
   options: StreamInitializationOptions
-): Promise<StreamController> {
+): Promise<StreamController<T>> {
   const { streamId, streamConfig, staleTimeoutSeconds } = options;
 
   // Check if stream exists in Redis
@@ -84,7 +98,7 @@ export async function initializeStream(
       cleanupPerformed: false,
       reason: 'new' as const
     };
-    return createStreamController(streamId, initResult);
+    return createStreamController<T>(streamId, initResult);
   }
 
   // Stream exists, check completion status
@@ -112,7 +126,7 @@ export async function initializeStream(
       cleanupPerformed,
       reason: 'completed-cleanup' as const
     };
-    return createStreamController(streamId, initResult);
+    return createStreamController<T>(streamId, initResult);
   }
 
   // Stream is not complete, check timeout
@@ -137,7 +151,7 @@ export async function initializeStream(
     cleanupPerformed: false,
     reason: 'timeout-recreation' as const
   };
-  return createStreamController(streamId, initResult);
+  return createStreamController<T>(streamId, initResult);
 }
 
  

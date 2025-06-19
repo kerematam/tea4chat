@@ -25,8 +25,16 @@ export type StreamChunk = {
   eventId?: string;
 };
 
-// Simple in-memory store for active intervals
+// Type for our demo stream data
+export interface DemoStreamData {
+  content: string;
+  chunkNumber?: number;
+  metadata?: object;
+}
+
+// Simple in-memory store for active intervals and controllers
 const activeStreams = new Map<string, NodeJS.Timeout>();
+const activeControllers = new Map<string, any>(); // Store controllers for stop functionality
 
 // Random text generator for demo
 const generateRandomText = (): string => {
@@ -49,6 +57,7 @@ const cleanup = () => {
   console.log(`Cleaning up ${activeStreams.size} active streams...`);
   activeStreams.forEach((interval) => clearInterval(interval));
   activeStreams.clear();
+  activeControllers.clear();
 };
 
 process.on('SIGTERM', cleanup);
@@ -77,7 +86,7 @@ export const streamRouterEventSourced = router({
         }
 
         // Initialize stream with smart recreation logic
-        const streamController = await initializeStream({
+        const streamController = await initializeStream<DemoStreamData>({
           streamId,
           streamConfig: {
             type: "demo",
@@ -93,6 +102,22 @@ export const streamRouterEventSourced = router({
           reason: streamController.initializationResult.reason
         });
 
+        // Set up the stop callback to handle interval cleanup
+        streamController.setStopCallback(async (streamId, reason) => {
+          console.log(`Stopping stream ${streamId} via controller, reason: ${reason}`);
+          const interval = activeStreams.get(streamId);
+          if (interval) {
+            clearInterval(interval);
+            activeStreams.delete(streamId);
+          }
+          
+          // Complete the stream in Redis and clean up controller
+          activeControllers.delete(streamId);
+          return await streamHelpers.completeStream(streamId, {
+            reason: reason || "controller-stop"
+          });
+        });
+
         let chunkCount = 0;
 
         // Start streaming - each chunk is a separate event
@@ -104,6 +129,7 @@ export const streamRouterEventSourced = router({
               console.log(`Stream ${streamId} expired, stopping...`);
               clearInterval(interval);
               activeStreams.delete(streamId);
+              activeControllers.delete(streamId);
               return;
             }
 
@@ -111,12 +137,17 @@ export const streamRouterEventSourced = router({
             chunkCount++;
 
             // Add chunk as individual event (NO reading/parsing existing data!)
-            const result = await streamController.push({ content: randomText });
+            const result = await streamController.push({ 
+              content: randomText,
+              chunkNumber: chunkCount,
+              metadata: { generatedAt: new Date().toISOString() }
+            });
             
             if (!result) {
               // Stream expired
               clearInterval(interval);
               activeStreams.delete(streamId);
+              activeControllers.delete(streamId);
               return;
             }
 
@@ -124,45 +155,42 @@ export const streamRouterEventSourced = router({
 
             // Auto-stop after 100 chunks
             if (chunkCount >= 5000) {
-              clearInterval(interval);
-              activeStreams.delete(streamId);
+                          clearInterval(interval);
+            activeStreams.delete(streamId);
+            activeControllers.delete(streamId);
 
-              await streamController.complete({
-                totalChunks: chunkCount,
-                reason: "auto-completed"
-              });
+            await streamController.complete({
+              totalChunks: chunkCount,
+              reason: "auto-completed"
+            });
             }
           } catch (error) {
             console.error("Stream error:", error);
             clearInterval(interval);
             activeStreams.delete(streamId);
+            activeControllers.delete(streamId);
           }
         }, intervalMs);
 
         activeStreams.set(streamId, interval);
+        activeControllers.set(streamId, streamController);
 
         return { success: true, message: "Stream started", streamId };
 
       } else if (action === "stop") {
-        console.log(`Stopping stream ${streamId}`);
-        const interval = activeStreams.get(streamId);
-        if (!interval) {
+        console.log(`Stopping stream ${streamId} via controller`);
+        const controller = activeControllers.get(streamId);
+        if (!controller) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Stream not found or already stopped",
           });
         }
-        console.log(`Clearing interval for stream ${streamId}`);
 
-        clearInterval(interval);
-        activeStreams.delete(streamId);
+        // Use the controller's stop method - this will handle cleanup automatically
+        await controller.stop("manual-stop");
 
-        console.log(`Completing stream ${streamId}`);
-        await streamHelpers.completeStream(streamId, {
-          reason: "manual-stop"
-        });
-
-        console.log(`Stream ${streamId} stopped`);
+        console.log(`Stream ${streamId} stopped via controller`);
 
         return { success: true, message: "Stream stopped", streamId };
       }
