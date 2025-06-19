@@ -1,5 +1,8 @@
 import Redis from 'ioredis';
 
+export const STREAM_TTL = 10; // 10 seconds
+export const STREAM_TIMEOUT = 10; // 10 seconds - timeout for incomplete streams
+
 // Create Redis client with configuration
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
@@ -138,8 +141,8 @@ export const cacheHelpers = {
         ...initialData
       };
       
-      // Set active stream with 30 minute expiration
-      await redis.setex(streamKey, 1800, JSON.stringify(streamData));
+      // Set active stream with TTL expiration
+      await redis.setex(streamKey, STREAM_TTL, JSON.stringify(streamData));
       
       return streamData;
     },
@@ -155,7 +158,7 @@ export const cacheHelpers = {
         streamData.updatedAt = new Date().toISOString();
         
         // Update stream data
-        await redis.setex(streamKey, 1800, JSON.stringify(streamData));
+        await redis.setex(streamKey, STREAM_TTL, JSON.stringify(streamData));
         
         // Publish to subscribers (only send delta content, not full content)
         const channel = cacheHelpers.keys.streamChannel(chatId);
@@ -244,6 +247,38 @@ export const cacheHelpers = {
         error,
         timestamp: new Date().toISOString()
       }));
+    },
+
+    // Check if stream can be recreated (smart recreation logic)
+    canRecreateStream: async (chatId: string) => {
+      const streamData = await cacheHelpers.streaming.getActiveStream(chatId);
+      if (!streamData) {
+        return { canRecreate: true, reason: 'no-existing-stream' };
+      }
+
+      // Check if stream is completed
+      if (streamData.status === 'completed') {
+        return { canRecreate: true, reason: 'stream-completed' };
+      }
+
+      // Check timeout for incomplete streams
+      const lastActivity = streamData.updatedAt || streamData.startedAt;
+      const timeSinceLastActivity = Date.now() - new Date(lastActivity).getTime();
+      const timeoutMs = STREAM_TIMEOUT * 1000;
+
+      if (timeSinceLastActivity >= timeoutMs) {
+        return { 
+          canRecreate: true, 
+          reason: 'stream-timeout',
+          timeoutSeconds: Math.round(timeSinceLastActivity / 1000)
+        };
+      }
+
+      return { 
+        canRecreate: false, 
+        reason: 'stream-active',
+        waitSeconds: Math.ceil((timeoutMs - timeSinceLastActivity) / 1000)
+      };
     }
   }
 };

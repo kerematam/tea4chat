@@ -7,6 +7,7 @@ import { messageRouter } from "./messageRouter";
 import { modelRouter } from "./modelRouter";
 import { settingsRouter } from "./settingsRouter";
 import { streamRouter } from "./streamRouter";
+import { streamRouterEventSourced } from "./streamRouter.event-sourced";
 import { getCookie } from "hono/cookie";
 import { auth } from "../auth";
 
@@ -17,6 +18,7 @@ export const appRouter = router({
   model: modelRouter,
   settings: settingsRouter,
   stream: streamRouter,
+  streamEventSourced: streamRouterEventSourced,
   // hello: withOwnerProcedure
   //   .input(z.object({ name: z.string().optional() }))
   //   .query(async ({ input, ctx }) => {

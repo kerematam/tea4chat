@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router } from "../trpc";
 import { withOwnerProcedure } from "../procedures";
-import { cacheHelpers, redisPubSub } from "../lib/redis";
+import { cacheHelpers, redisPubSub, STREAM_TIMEOUT } from "../lib/redis";
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "crypto";
 
@@ -49,12 +49,26 @@ export const streamRouter = router({
       const channel = `demo:stream:${streamId}`;
 
       if (action === "start") {
-        // Check if stream already exists
+        // Check if stream already exists in memory
         if (activeStreams.has(streamId)) {
           throw new TRPCError({
             code: "CONFLICT",
-            message: "Stream already active",
+            message: "Stream already active in memory",
           });
+        }
+
+        // Smart stream recreation logic
+        const recreationCheck = await cacheHelpers.streaming.canRecreateStream(streamId);
+        if (!recreationCheck.canRecreate) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Stream exists and is not complete. Wait ${recreationCheck.waitSeconds}s or until completion.`,
+          });
+        }
+
+        if (recreationCheck.reason !== 'no-existing-stream') {
+          console.log(`Stream ${streamId} recreation allowed: ${recreationCheck.reason}`, 
+            recreationCheck.timeoutSeconds ? `(${recreationCheck.timeoutSeconds}s elapsed)` : '');
         }
 
         // Initialize stream data in Redis

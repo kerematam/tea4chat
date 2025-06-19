@@ -10,6 +10,7 @@ import { TrpcProvider } from "./providers/TrpcProvider";
 import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
 import AdminRoute from "./components/AdminRoute";
 import { StreamTest } from "./pages/StreamTest/StreamTest";
+import { StreamTestEventSourced } from "./pages/StreamTest/StreamTestEventSourced";
 
 const Chat = lazy(() => import("./pages/Chat/Chat"));
 const ChatList = lazy(() => import("./pages/ChatList/ChatList"));
@@ -71,9 +72,13 @@ function App() {
                     />
                   </Route>
                   <Route path="stream-test" element={<StreamTest />} />
+                  <Route
+                    path="stream-test-event-sourced"
+                    element={<StreamTestEventSourced />}
+                  />
 
                   <Route path="403" element={<Forbidden />} />
-                  
+
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
