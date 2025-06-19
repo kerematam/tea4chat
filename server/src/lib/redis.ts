@@ -157,13 +157,12 @@ export const cacheHelpers = {
         // Update stream data
         await redis.setex(streamKey, 1800, JSON.stringify(streamData));
         
-        // Publish to subscribers
+        // Publish to subscribers (only send delta content, not full content)
         const channel = cacheHelpers.keys.streamChannel(chatId);
         await redisPubSub.publish(channel, JSON.stringify({
           type: 'chunk',
           chatId,
-          content,
-          fullContent: streamData.content,
+          content, // Only the delta content
           timestamp: streamData.updatedAt
         }));
         
@@ -183,12 +182,12 @@ export const cacheHelpers = {
         streamData.status = 'completed';
         streamData.completedAt = new Date().toISOString();
         
-        // Publish completion event
+        // Publish completion event (send final full content)
         const channel = cacheHelpers.keys.streamChannel(chatId);
         await redisPubSub.publish(channel, JSON.stringify({
           type: 'complete',
           chatId,
-          finalContent: streamData.content,
+          fullContent: streamData.content, // Send full content on completion
           message: finalMessage,
           timestamp: streamData.completedAt
         }));
