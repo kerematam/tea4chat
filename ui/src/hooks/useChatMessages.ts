@@ -38,6 +38,12 @@ interface UseChatMessagesProps {
   limit?: number;
   onStreamingUpdate?: (chunk: StreamChunk) => void;
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
+  chunkHandlers?: {
+    userMessage?: (message: MessageType) => void;
+    aiMessageStart?: (message: MessageType) => void;
+    aiMessageChunk?: (messageId: string, fullContent: string, chatId: string) => void;
+    aiMessageComplete?: (message: MessageType) => void;
+  };
 }
 
 export const useChatMessages = ({
@@ -45,6 +51,7 @@ export const useChatMessages = ({
   limit = 4,
   onStreamingUpdate,
   onChatCreated,
+  chunkHandlers,
 }: UseChatMessagesProps) => {
   const { error } = useNotify();
   const utils = trpc.useUtils();
@@ -245,11 +252,13 @@ export const useChatMessages = ({
         }
         // Add the user message to cache (use chatId from chunk)
         addNewMessages([chunk.message], chunk.chatId);
+        chunkHandlers?.userMessage?.(chunk.message as MessageType);
         break;
 
       case "aiMessageStart":
         // Add the initial AI message to cache (use chatId from chunk)
         addNewMessages([chunk.message], chunk.chatId);
+        chunkHandlers?.aiMessageStart?.(chunk.message as MessageType);
         break;
 
       case "aiMessageChunk":
@@ -258,11 +267,13 @@ export const useChatMessages = ({
           content: chunk.fullContent,
           text: chunk.fullContent,
         }, chunk.chatId);
+        chunkHandlers?.aiMessageChunk?.(chunk.messageId, chunk.fullContent, chunk.chatId);
         break;
 
       case "aiMessageComplete":
         // Update with final complete message (use chatId from chunk)
         updateMessageInCache(chunk.message.id, chunk.message, chunk.chatId);
+        chunkHandlers?.aiMessageComplete?.(chunk.message as MessageType);
         break;
 
       default:

@@ -4,7 +4,7 @@ import { Box } from "@mui/material";
 import { ChatTextField } from "../ChatTextField/ChatTextField";
 import { useState } from "react";
 import { trpc } from "../../services/trpc";
-import { useChatMessages } from "../../hooks/useChatMessages";
+import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
 
 import SendIcon from "@mui/icons-material/Send";
 import { useNavigate } from "react-router-dom";
@@ -22,8 +22,12 @@ export const ChatTextForm = ({
   const navigate = useNavigate();
   const hookResult = useChatMessages({
     chatId: chatId!,
+    chunkHandlers: {
+      userMessage: (message: MessageType) => {
+        setQuestion("");
+      },
+    },
     onChatCreated: ({ chatId }: { chatId: string }) => {
-      console.log("chatId", chatId);
       navigate(`/chat/${chatId}`, { replace: true });
     },
   });
