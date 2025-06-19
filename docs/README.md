@@ -63,8 +63,8 @@ const streamGenerator = await trpc.streamEventSourced.listenToStream.mutate({
 });
 
 for await (const event of streamGenerator) {
-  if (event.type === 'chunk') {
-    content += event.content;
+  if (event.type === 'chunk' && event.data?.content) {
+    content += event.data.content;
   }
 }
 ```

@@ -120,7 +120,7 @@ export const streamHelpers = {
         await redisPubSub.publish(channel, JSON.stringify({
             type: 'chunk',
             streamId,
-            content: chunk,
+            data: { content: chunk },
             timestamp,
             eventId
         }));

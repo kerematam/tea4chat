@@ -190,16 +190,20 @@ await redis.expire(streamKey, STREAM_TTL); // Reset both TTLs together
   "timestamp": "2024-01-01T10:00:00Z"
 }
 ```
+*Note: No `fullContent` field - content is accumulated incrementally on the client side from chunk events.*
 
 ### Chunk Event  
 ```json
 {
   "type": "chunk",
   "streamId": "stream-abc123",
-  "content": "Hello world! ",
+  "data": {
+    "content": "Hello world! "
+  },
   "timestamp": "2024-01-01T10:00:01Z"
 }
 ```
+*Note: The `data` object structure allows for future message properties like `messageId`, `userId`, etc.*
 
 ### Complete Event
 ```json
@@ -265,9 +269,14 @@ const streamGenerator = await trpc.streamEventSourced.listenToStream.mutate({
   fromEventId: "0" // Start from beginning
 });
 
+let accumulatedContent = '';
 for await (const event of streamGenerator) {
-  if (event.type === 'chunk') {
-    accumulatedContent += event.content;
+  if (event.type === 'start') {
+    // Reset content on stream start
+    accumulatedContent = '';
+  } else if (event.type === 'chunk' && event.data?.content) {
+    // Accumulate content incrementally on client side
+    accumulatedContent += event.data.content;
     displayContent(accumulatedContent);
   }
 }

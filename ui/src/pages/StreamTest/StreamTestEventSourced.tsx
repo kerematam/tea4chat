@@ -29,8 +29,7 @@ import { trpc } from '../../services/trpc';
 interface StreamData {
   type: 'start' | 'chunk' | 'complete' | 'error';
   streamId: string;
-  content?: string;
-  fullContent?: string;
+  data?: { content?: string; [key: string]: unknown };
   timestamp: string;
   error?: string;
   eventId?: string;
@@ -79,9 +78,9 @@ export const StreamTestEventSourced: React.FC = () => {
             // Reset content on start
             accumulatedContent = '';
             setStreamContent('');
-          } else if (chunk.type === 'chunk' && chunk.content) {
+          } else if (chunk.type === 'chunk' && chunk.data && 'content' in chunk.data && typeof chunk.data.content === 'string') {
             // Accumulate delta content from chunks
-            accumulatedContent += chunk.content;
+            accumulatedContent += chunk.data.content;
             setStreamContent(accumulatedContent);
           }
         }
@@ -212,7 +211,7 @@ export const StreamTestEventSourced: React.FC = () => {
         const chunks = events.slice(-20).map(event => ({
           type: event.type as StreamData['type'],
           streamId,
-          content: event.content || undefined,
+          data: event.content ? { content: event.content } : undefined,
           timestamp: event.timestamp,
           eventId: event.id,
         }));
@@ -433,7 +432,7 @@ export const StreamTestEventSourced: React.FC = () => {
                         {formatTimestamp(chunk.timestamp)}
                       </Typography>
                     </Stack>
-                    {chunk.content && (
+                    {chunk.data && 'content' in chunk.data && chunk.data.content && (
                       <Paper
                         variant="outlined"
                         sx={{
@@ -444,7 +443,7 @@ export const StreamTestEventSourced: React.FC = () => {
                           bgcolor: 'background.paper',
                         }}
                       >
-                        "{chunk.content}"
+                        "{chunk.data.content}"
                       </Paper>
                     )}
                     {chunk.error && (

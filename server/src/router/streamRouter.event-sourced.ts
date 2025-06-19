@@ -17,8 +17,7 @@ export const STALE_STREAM_TIMEOUT = 5;
 export type StreamChunk = {
   type: "start" | "chunk" | "complete" | "error";
   streamId: string;
-  content?: string;
-  fullContent?: string;
+  data?: object;
   timestamp: string;
   error?: string;
   eventId?: string;
@@ -241,14 +240,13 @@ export const streamRouterEventSourced = router({
             yield {
               type: "start",
               streamId,
-              fullContent: "", // Will be built from chunks
               timestamp: event.timestamp,
             } as StreamChunk;
           } else if (event.type === 'chunk') {
             yield {
               type: "chunk",
               streamId,
-              content: event.content,
+              data: { content: event.content },
               timestamp: event.timestamp,
               eventId: event.id,
             } as StreamChunk;
