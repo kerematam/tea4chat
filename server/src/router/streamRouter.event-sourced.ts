@@ -111,7 +111,7 @@ export const streamRouterEventSourced = router({
             chunkCount++;
 
             // Add chunk as individual event (NO reading/parsing existing data!)
-            const result = await streamController.addChunk(randomText);
+            const result = await streamController.push({ content: randomText });
             
             if (!result) {
               // Stream expired

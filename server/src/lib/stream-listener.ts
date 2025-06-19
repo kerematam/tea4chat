@@ -107,7 +107,7 @@ export async function* createStreamListener(
         yield {
           type: "chunk",
           streamId,
-          data: { content: event.content },
+          data: event.data || { content: event.content }, // Handle both new and old format
           timestamp: event.timestamp,
           eventId: event.id,
         };

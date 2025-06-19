@@ -14,7 +14,10 @@ import { streamHelpers } from "./redis.event-sourcing.js";
 function createStreamController(streamId: string, initResult: StreamInitializationResult): StreamController {
   return {
     streamId,
-    addChunk: (content: string) => streamHelpers.addChunk(streamId, content),
+    push: (data: StreamEventData) => {
+      // Pass the entire data object to Redis for storage
+      return streamHelpers.addChunk(streamId, data);
+    },
     complete: (metadata?: object) => streamHelpers.completeStream(streamId, metadata),
     getMeta: () => streamHelpers.getStreamMeta(streamId),
     getEvents: (fromId?: string) => streamHelpers.getStreamEvents(streamId, fromId),
@@ -38,9 +41,14 @@ export interface StreamInitializationResult {
   reason: 'new' | 'completed-cleanup' | 'timeout-recreation';
 }
 
+export interface StreamEventData {
+  content?: string;
+  [key: string]: any; // Allow any additional properties
+}
+
 export interface StreamController {
   streamId: string;
-  addChunk: (content: string) => Promise<{ eventId: string | null; timestamp: string; } | null>;
+  push: (data: StreamEventData) => Promise<{ eventId: string | null; timestamp: string; } | null>;
   complete: (metadata?: object) => Promise<{ timestamp: string; }>;
   getMeta: () => Promise<any>;
   getEvents: (fromId?: string) => Promise<any[]>;

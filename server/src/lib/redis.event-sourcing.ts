@@ -84,7 +84,7 @@ export const streamHelpers = {
     },
 
     // Add a chunk event (NO state accumulation!)
-    addChunk: async (streamId: string, chunk: string) => {
+    addChunk: async (streamId: string, data: any) => {
         const streamKey = streamHelpers.keys.streamEvents(streamId);
         const metaKey = streamHelpers.keys.streamMeta(streamId);
 
@@ -102,7 +102,7 @@ export const streamHelpers = {
             '*', // Auto-generate ID
             'type', 'chunk',
             'streamId', streamId,
-            'content', chunk,
+            'data', JSON.stringify(data), // Store the entire data object
             'timestamp', timestamp
         );
 
@@ -115,12 +115,12 @@ export const streamHelpers = {
             await redis.expire(streamKey, STREAM_TTL); // Reset stream TTL - keeps ALL events alive together
         }
 
-        // Publish real-time notification (just the chunk)
+        // Publish real-time notification (the full data object)
         const channel = streamHelpers.keys.streamChannel(streamId);
         await redisPubSub.publish(channel, JSON.stringify({
             type: 'chunk',
             streamId,
-            data: { content: chunk },
+            data: data, // Send the full data object
             timestamp,
             eventId
         }));
@@ -207,9 +207,13 @@ export const streamHelpers = {
         const chunks: string[] = [];
 
         for (const event of events) {
-            if (event.type === 'chunk' && event.content) {
-                content += event.content;
-                chunks.push(event.content);
+            if (event.type === 'chunk' && event.data) {
+                // Handle both old format (event.content) and new format (event.data.content)
+                const chunkContent = event.data.content || event.content || '';
+                if (chunkContent) {
+                    content += chunkContent;
+                    chunks.push(chunkContent);
+                }
             }
         }
 
