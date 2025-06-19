@@ -49,7 +49,6 @@ export const useChatMessages = ({
   const { error } = useNotify();
   const utils = trpc.useUtils();
 
-
   // Infinite query for messages (only enabled when chatId exists)
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
     {
@@ -59,8 +58,10 @@ export const useChatMessages = ({
     {
       initialCursor: new Date().toISOString(),
       enabled: !!chatId, // Only run query when chatId exists
-      refetchOnWindowFocus: false,
-      refetchOnMount: false,
+      refetchOnWindowFocus: false, // Don't refetch on window focus
+      refetchOnMount: false, // Don't refetch when component mounts
+      refetchOnReconnect: true, // Keep this for network issues
+      staleTime: 1000 * 60 * 60, // 1 hour - consider data fresh for longer
       // older messages
       getNextPageParam: (lastPage) => {
         if (!lastPage || lastPage.messages.length < limit) {
@@ -109,7 +110,6 @@ export const useChatMessages = ({
     const activeChatId = targetChatId || chatId;
 
     if (!activeChatId) {
-      console.log("No chat ID available yet - cache will be initialized when chat is created");
       return;
     }
 
@@ -177,7 +177,6 @@ export const useChatMessages = ({
     const activeChatId = targetChatId || chatId;
 
     if (!activeChatId) {
-      console.log("No chat ID available yet - cannot update message in cache");
       return;
     }
 
@@ -227,7 +226,6 @@ export const useChatMessages = ({
   const sendMessage = useCallback((content: string, modelId?: string) => {
     if (!content.trim() || sendMessageMutation.isPending) return;
 
-    console.log("!!! sendMessage", content, modelId);
     sendMessageMutation.mutate({
       content: content.trim(),
       chatId, // Can be undefined for new chat creation

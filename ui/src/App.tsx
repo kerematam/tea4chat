@@ -3,16 +3,14 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import CommonLayout from "./layouts/Common";
 import ThemeProvider from "./theme/ThemeProvider";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { queryClient } from "./services/queryClient";
+import { queryClient, persister } from "./services/queryClient";
 import { TrpcProvider } from "./providers/TrpcProvider";
 import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
 import AdminRoute from "./components/AdminRoute";
 
-// Lazy load components
 const Chat = lazy(() => import("./pages/Chat/Chat"));
-// const Home = lazy(() => import("./pages/Home/Home"));
 const ChatList = lazy(() => import("./pages/ChatList/ChatList"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AdminDashboard = lazy(() => import("./pages/Admin/AdminDashboard"));
@@ -34,7 +32,20 @@ const LoadingFallback = () => (
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister,
+        maxAge: 86400000, // 24 hours
+        // INFO: leaving here for debugging
+        // dehydrateOptions: {
+        //   shouldDehydrateQuery: (query) => {
+        //     const shouldPersist = query.state.status === 'success';
+        //     return shouldPersist;
+        //   },
+        // },
+      }}
+    >
       <TrpcProvider>
         <NotificationProvider>
           <ThemeProvider>
@@ -47,7 +58,7 @@ function App() {
                     <Route path="chat/:id?" element={<Chat />} />
                     <Route path="chat-list" element={<ChatList />} />
                     <Route path="settings" element={<Settings />} />
-                    
+
                     {/* Admin Routes */}
                     <Route
                       path="admin"
@@ -57,14 +68,8 @@ function App() {
                         </AdminRoute>
                       }
                     />
-                    
-                    {/* <Route path="/login" element={<Login />} /> */}
                   </Route>
-                  
-                  {/* Error Pages - Outside CommonLayout for full-page display */}
                   <Route path="403" element={<Forbidden />} />
-                  
-                  {/* Catch-all route for 404 - Must be last */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
@@ -78,7 +83,7 @@ function App() {
           </ThemeProvider>
         </NotificationProvider>
       </TrpcProvider>
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   );
 }
 
