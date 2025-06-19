@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { trpc } from "../services/trpc";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
 
@@ -19,7 +19,6 @@ export type StreamChunk =
     type: "aiMessageChunk";
     messageId: string;
     chunk: string;
-    fullContent: string;
     chatId: string;
   }
   | { type: "aiMessageComplete"; message: MessageType; chatId: string };
@@ -56,6 +55,9 @@ export const useChatMessages = ({
 }: UseChatMessagesProps) => {
   const { error } = useNotify();
   const utils = trpc.useUtils();
+  
+  // Track accumulated content for streaming messages
+  const streamingContent = useRef<Map<string, string>>(new Map());
 
   // Infinite query for messages (only enabled when chatId exists)
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
@@ -257,21 +259,31 @@ export const useChatMessages = ({
         break;
 
       case "aiMessageStart":
+        // Initialize streaming content for this message
+        streamingContent.current.set(chunk.message.id, "");
         // Add the initial AI message to cache (use chatId from chunk)
         addNewMessages([chunk.message], chunk.chatId);
         chunkHandlers?.aiMessageStart?.(chunk.message as MessageType);
         break;
 
-      case "aiMessageChunk":
+      case "aiMessageChunk": {
+        // Accumulate the chunk content locally
+        const currentContent = streamingContent.current.get(chunk.messageId) || "";
+        const fullContent = currentContent + chunk.chunk;
+        streamingContent.current.set(chunk.messageId, fullContent);
+        
         // Update the AI message content in cache (use chatId from chunk)
         updateMessageInCache(chunk.messageId, {
-          content: chunk.fullContent,
-          text: chunk.fullContent,
+          content: fullContent,
+          text: fullContent,
         }, chunk.chatId);
-        chunkHandlers?.aiMessageChunk?.(chunk.messageId, chunk.fullContent, chunk.chatId);
+        chunkHandlers?.aiMessageChunk?.(chunk.messageId, fullContent, chunk.chatId);
         break;
+      }
 
       case "aiMessageComplete":
+        // Clean up streaming content for this message
+        streamingContent.current.delete(chunk.message.id);
         // Update with final complete message (use chatId from chunk)
         updateMessageInCache(chunk.message.id, chunk.message, chunk.chatId);
         chunkHandlers?.aiMessageComplete?.(chunk.message as MessageType);

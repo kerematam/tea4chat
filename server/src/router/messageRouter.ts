@@ -368,7 +368,6 @@ export const messageRouter = router({
                   type: "aiMessageChunk" as const,
                   messageId: aiMessage.id,
                   chunk: delta,
-                  fullContent,
                   chatId: chatId,
                 };
               }
@@ -444,7 +443,6 @@ export const messageRouter = router({
                   type: "aiMessageChunk" as const,
                   messageId: aiMessage.id,
                   chunk: delta,
-                  fullContent,
                   chatId: chatId,
                 };
               }
