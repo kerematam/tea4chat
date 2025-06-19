@@ -1,15 +1,18 @@
-# tea4chat 🍵💬
+<div align="center" style="background-color: ##fef7ed; padding: 20px; border-radius: 12px; margin: 20px 0; position: relative;">
+  <img src="ui/src/assets/tea4chat.png" alt="Tea 4 Chat Logo" width="200"/>
+  <h1 style="font-family: 'Courier New', 'Monaco', 'Consolas', monospace; font-weight: bold; color: white; font-size: 2rem; text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3); margin: 10px 0 0 0; letter-spacing: 3px;">Tea 4 Chat 💬</h1>
+</div>
 
 An AI-powered chat application built for scalability and performance, supporting multiple AI models with real-time streaming capabilities.
 
 ## 🚀 Features
 
 - **Multi-Model AI Support**: OpenAI GPT, Anthropic Claude, and more
-- **Real-time Streaming**: WebSocket-based real-time AI responses
+- **Local First**: React Query with IndexedDB persistor for offline-first experience
 - **User Authentication**: OAuth integration with Google and anonymous sessions
 - **Chat History**: Persistent chat sessions with full history
 - **Modern UI**: React-based responsive interface with dark/light theme
-- **High Performance**: Built with Bun runtime for optimal performance
+- **High Performance**: Built with Bun runtime, clustering, and binary builds
 - **Scalable Architecture**: Docker-ready with Redis for session management
 - **Database Integration**: PostgreSQL with Prisma ORM
 - **Production Ready**: Multi-stage Docker builds with clustering support
@@ -22,7 +25,7 @@ This is a full-stack TypeScript application with:
 - **Backend**: Bun + Hono + tRPC for type-safe APIs
 - **Database**: PostgreSQL with Prisma ORM
 - **Cache/Sessions**: Redis for real-time features
-- **Authentication**: Better Auth with OAuth providers
+- **Authentication**: Better Auth with Google
 - **Containerization**: Docker with multi-service setup
 
 ## 📋 Prerequisites
@@ -34,7 +37,7 @@ This is a full-stack TypeScript application with:
 
 ## 🛠️ Quick Start
 
-### Development Setup
+### Docker Setup (Recommended)
 
 1. **Clone the repository**
    ```bash
@@ -42,13 +45,21 @@ This is a full-stack TypeScript application with:
    cd tea4chat
    ```
 
-2. **Start with Docker Compose**
+2. **Configure environment**
    ```bash
-   cd docker-compose
-   docker-compose up -d
+   # Copy and configure server environment
+   cp docker-compose/envs/server.example.env docker-compose/envs/server.env
+   cp docker-compose/envs/frontend.example.env docker-compose/envs/frontend.env
+   # Edit the .env files with your values
    ```
 
-3. **Access the application**
+3. **Start with Docker Compose**
+   ```bash
+   cd docker-compose
+   docker-compose -f docker-compose.external-fullstack.yml up
+   ```
+
+4. **Access the application**
    - Frontend: http://localhost:5173
    - Backend API: http://localhost:3000
    - Database Studio: http://localhost:5555
@@ -76,29 +87,31 @@ This is a full-stack TypeScript application with:
 
 1. **Configure environment variables**
    ```bash
-   cp docker-compose/envs/.env.example docker-compose/envs/.env
-   # Edit the .env file with your production values
+   cp docker-compose/envs/server.example.env docker-compose/envs/server.env
+   cp docker-compose/envs/frontend.example.env docker-compose/envs/frontend.env
+   # Edit the .env files with your production values
    ```
 
 2. **Deploy with production compose**
    ```bash
    cd docker-compose
-   docker-compose -f prod.yml up -d
+   docker-compose -f docker-compose.prod.yml up -d
    ```
 
 ### Environment Variables
 
-Create a `.env` file in the `docker-compose/envs/` directory:
+Configure `docker-compose/envs/server.env`:
 
 ```env
 # Database
-POSTGRES_USER=your_db_user
-POSTGRES_PASSWORD=your_secure_password
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
 POSTGRES_DB=tea4chat
-DATABASE_URL=postgresql://user:password@localhost:5432/tea4chat
+DATABASE_URL="postgresql://postgres:postgres@postgres:5432/tea4chat?schema=public"
 
 # Redis
-REDIS_URL=redis://localhost:6379
+REDIS_HOST=redis
+REDIS_PORT=6379
 
 # Auth
 BETTER_AUTH_SECRET=your-secret-key-here
@@ -108,35 +121,9 @@ BETTER_AUTH_URL=http://localhost:3000
 OPENAI_API_KEY=your-openai-key
 ANTHROPIC_API_KEY=your-anthropic-key
 
-# OAuth (optional)
+# OAuth
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-```
-
-## 📁 Project Structure
-
-```
-tea4chat/
-├── server/              # Backend API (Bun + Hono + tRPC)
-│   ├── src/
-│   │   ├── router/      # tRPC routers
-│   │   ├── services/    # Business logic
-│   │   ├── middleware/  # Auth, CORS, rate limiting
-│   │   └── trpc.ts      # tRPC setup
-│   ├── prisma/          # Database schema & migrations
-│   └── package.json
-├── ui/                  # Frontend (React + Vite)
-│   ├── src/
-│   │   ├── components/  # Reusable UI components
-│   │   ├── pages/       # Route pages
-│   │   ├── services/    # API clients
-│   │   └── providers/   # Context providers
-│   └── package.json
-├── docker-compose/      # Docker orchestration
-│   ├── docker-compose.yml
-│   ├── prod.yml
-│   └── envs/           # Environment configurations
-└── docs/               # Additional documentation
 ```
 
 ## 🔧 Development
