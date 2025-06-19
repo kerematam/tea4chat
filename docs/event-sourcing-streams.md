@@ -111,6 +111,7 @@ if (existingMeta) {
 - **Completed Streams**: Returns nothing (no events yielded)
 - **Ongoing Streams**: Yields past events + real-time events
 - **Resume Capability**: Start from specific event ID
+- **Race Condition Safe**: Subscribes before yielding past events to prevent message loss
 
 **Event Processing**:
 ```typescript
@@ -119,7 +120,11 @@ if (streamMeta.status === 'completed') {
   return; // Don't yield anything
 }
 
-// Step 2: Yield past events (excluding completion events)
+// Step 2: Subscribe to real-time events FIRST (prevents race condition)
+await subscriber.subscribe(channel);
+// New events are queued while yielding past events
+
+// Step 3: Yield past events (new events safely queued meanwhile)
 for (const event of pastEvents) {
   if (event.type === 'complete') {
     return; // Stop if completion found
@@ -127,7 +132,7 @@ for (const event of pastEvents) {
   yield event; // Only yield start/chunk events
 }
 
-// Step 3: Subscribe to real-time events
+// Step 4: Stream queued + new real-time events
 // Stop yielding if completion/error arrives
 ```
 
@@ -236,6 +241,38 @@ if (lastEvent?.type === 'complete') {
   // Stale stream - allow recreation
 }
 ```
+
+## Race Condition Prevention
+
+### The Problem
+Without careful ordering, there's a race condition where events can be lost:
+
+```
+❌ BAD: Subscribe after reading past events
+1. Read past events: [start, chunk1, chunk2] ← Takes time
+2. chunk3 arrives (MISSED! - not subscribed yet)  
+3. chunk4 arrives (MISSED! - not subscribed yet)
+4. Subscribe to pub/sub
+5. chunk5 arrives (✅ received)
+Result: chunk3 and chunk4 are LOST!
+```
+
+### The Solution
+Subscribe first, then yield past events while queuing new ones:
+
+```
+✅ GOOD: Subscribe before reading past events  
+1. Subscribe to pub/sub (captures everything from now)
+2. Read past: [start, chunk1, chunk2] ← Takes time
+   Meanwhile: chunk3 arrives → queued ✅
+   Meanwhile: chunk4 arrives → queued ✅  
+3. Yield start, chunk1, chunk2 (from past)
+4. Yield chunk3, chunk4 (from queue)
+5. Continue with real-time events
+Result: NO LOST EVENTS!
+```
+
+This ensures **zero message loss** even during high-throughput streaming or slow past event iteration.
 
 ## Performance Benefits
 

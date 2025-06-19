@@ -228,8 +228,34 @@ export const streamRouterEventSourced = router({
         
         console.log(`Found ${pastEvents.length} past events`);
 
-        // STEP 2: Yield all past events first (for resume functionality)
-        // But skip if we encounter a complete event - stream shouldn't be listened to
+        // STEP 2: Subscribe to NEW events FIRST to avoid race condition
+        const channel = streamHelpers.keys.streamChannel(streamId);
+        await subscriber.subscribe(channel);
+
+        const messageQueue: StreamChunk[] = [];
+        let messageResolver: ((value: StreamChunk | null) => void) | null = null;
+
+        subscriber.on('message', (receivedChannel, message) => {
+          if (receivedChannel !== channel) return;
+          
+          try {
+            const event = JSON.parse(message) as StreamChunk;
+            if (event.streamId === streamId) {
+              // During past event yielding, always queue new messages
+              // After past events, use resolver pattern for real-time delivery
+              if (messageResolver) {
+                messageResolver(event);
+                messageResolver = null;
+              } else {
+                messageQueue.push(event);
+              }
+            }
+          } catch (error) {
+            console.error("Error parsing stream event:", error);
+          }
+        });
+
+        // STEP 3: Yield all past events (new events are safely queued meanwhile)
         for (const event of pastEvents) {
           if (event.type === 'complete') {
             console.log(`Found complete event in past events, stream ${streamId} is done`);
@@ -253,32 +279,7 @@ export const streamRouterEventSourced = router({
           }
         }
 
-        // STEP 3: Subscribe to NEW events via pub/sub
-        const channel = streamHelpers.keys.streamChannel(streamId);
-        await subscriber.subscribe(channel);
-
-        const messageQueue: StreamChunk[] = [];
-        let messageResolver: ((value: StreamChunk | null) => void) | null = null;
-
-        subscriber.on('message', (receivedChannel, message) => {
-          if (receivedChannel !== channel) return;
-          
-          try {
-            const event = JSON.parse(message) as StreamChunk;
-            if (event.streamId === streamId) {
-              if (messageResolver) {
-                messageResolver(event);
-                messageResolver = null;
-              } else {
-                messageQueue.push(event);
-              }
-            }
-          } catch (error) {
-            console.error("Error parsing stream event:", error);
-          }
-        });
-
-        // STEP 4: Stream NEW events as they arrive
+        // STEP 4: Stream NEW events as they arrive (including queued ones from during past event iteration)
         let streaming = true;
         while (streaming) {
           const data = await new Promise<StreamChunk | null>((resolve) => {
