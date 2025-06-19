@@ -77,7 +77,7 @@ export const streamRouterEventSourced = router({
         }
 
         // Initialize stream with smart recreation logic
-        const initResult = await initializeStream({
+        const streamController = await initializeStream({
           streamId,
           streamConfig: {
             type: "demo",
@@ -88,9 +88,9 @@ export const streamRouterEventSourced = router({
         });
 
         console.log(`Stream ${streamId} initialized:`, {
-          wasRecreated: initResult.wasRecreated,
-          cleanupPerformed: initResult.cleanupPerformed,
-          reason: initResult.reason
+          wasRecreated: streamController.initializationResult.wasRecreated,
+          cleanupPerformed: streamController.initializationResult.cleanupPerformed,
+          reason: streamController.initializationResult.reason
         });
 
         let chunkCount = 0;
@@ -99,7 +99,7 @@ export const streamRouterEventSourced = router({
         const interval = setInterval(async () => {
           try {
             // Check if stream still exists (TTL-based cleanup)
-            const streamMeta = await streamHelpers.getStreamMeta(streamId);
+            const streamMeta = await streamController.getMeta();
             if (!streamMeta) {
               console.log(`Stream ${streamId} expired, stopping...`);
               clearInterval(interval);
@@ -111,7 +111,7 @@ export const streamRouterEventSourced = router({
             chunkCount++;
 
             // Add chunk as individual event (NO reading/parsing existing data!)
-            const result = await streamHelpers.addChunk(streamId, randomText);
+            const result = await streamController.addChunk(randomText);
             
             if (!result) {
               // Stream expired
@@ -127,7 +127,7 @@ export const streamRouterEventSourced = router({
               clearInterval(interval);
               activeStreams.delete(streamId);
 
-              await streamHelpers.completeStream(streamId, {
+              await streamController.complete({
                 totalChunks: chunkCount,
                 reason: "auto-completed"
               });

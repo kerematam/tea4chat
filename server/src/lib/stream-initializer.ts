@@ -8,6 +8,20 @@
 import { TRPCError } from "@trpc/server";
 import { streamHelpers } from "./redis.event-sourcing.js";
 
+/**
+ * Creates a StreamController with methods bound to a specific stream ID
+ */
+function createStreamController(streamId: string, initResult: StreamInitializationResult): StreamController {
+  return {
+    streamId,
+    addChunk: (content: string) => streamHelpers.addChunk(streamId, content),
+    complete: (metadata?: object) => streamHelpers.completeStream(streamId, metadata),
+    getMeta: () => streamHelpers.getStreamMeta(streamId),
+    getEvents: (fromId?: string) => streamHelpers.getStreamEvents(streamId, fromId),
+    initializationResult: initResult,
+  };
+}
+
 export interface StreamInitializationOptions {
   streamId: string;
   streamConfig: {
@@ -24,6 +38,15 @@ export interface StreamInitializationResult {
   reason: 'new' | 'completed-cleanup' | 'timeout-recreation';
 }
 
+export interface StreamController {
+  streamId: string;
+  addChunk: (content: string) => Promise<{ eventId: string | null; timestamp: string; } | null>;
+  complete: (metadata?: object) => Promise<{ timestamp: string; }>;
+  getMeta: () => Promise<any>;
+  getEvents: (fromId?: string) => Promise<any[]>;
+  initializationResult: StreamInitializationResult;
+}
+
 /**
  * Initialize a stream with smart recreation logic
  * 
@@ -34,12 +57,12 @@ export interface StreamInitializationResult {
  * - Creating new stream with proper configuration
  * 
  * @param options Stream initialization configuration
- * @returns Information about the initialization process
+ * @returns StreamController with methods bound to the specific stream
  * @throws TRPCError if stream cannot be initialized
  */
 export async function initializeStream(
   options: StreamInitializationOptions
-): Promise<StreamInitializationResult> {
+): Promise<StreamController> {
   const { streamId, streamConfig, staleTimeoutSeconds } = options;
 
   // Check if stream exists in Redis
@@ -48,11 +71,12 @@ export async function initializeStream(
   if (!existingMeta) {
     // No existing stream, create new one
     await streamHelpers.createStream(streamId, streamConfig);
-    return {
+    const initResult = {
       wasRecreated: false,
       cleanupPerformed: false,
-      reason: 'new'
+      reason: 'new' as const
     };
+    return createStreamController(streamId, initResult);
   }
 
   // Stream exists, check completion status
@@ -75,11 +99,12 @@ export async function initializeStream(
 
     // Create new stream after cleanup
     await streamHelpers.createStream(streamId, streamConfig);
-    return {
+    const initResult = {
       wasRecreated: true,
       cleanupPerformed,
-      reason: 'completed-cleanup'
+      reason: 'completed-cleanup' as const
     };
+    return createStreamController(streamId, initResult);
   }
 
   // Stream is not complete, check timeout
@@ -99,11 +124,12 @@ export async function initializeStream(
   
   // Create new stream (old one will be cleaned up by TTL)
   await streamHelpers.createStream(streamId, streamConfig);
-  return {
+  const initResult = {
     wasRecreated: true,
     cleanupPerformed: false,
-    reason: 'timeout-recreation'
+    reason: 'timeout-recreation' as const
   };
+  return createStreamController(streamId, initResult);
 }
 
  
