@@ -7,15 +7,14 @@ An AI-powered chat application built for scalability and performance, supporting
 
 ## 🚀 Features
 
-- **Multi-Model AI Support**: OpenAI GPT, Anthropic Claude, and more
-- **Local First**: React Query with IndexedDB persistor for offline-first experience
-- **User Authentication**: OAuth integration with Google and anonymous sessions
-- **Chat History**: Persistent chat sessions with full history
-- **Modern UI**: React-based responsive interface with dark/light theme
 - **High Performance**: Built with Bun runtime, clustering, and binary builds
+- **Multi-Model AI Support**: OpenAI GPT, Anthropic Claude
+- **Local First**: React Query with IndexedDB persistor for local-first experience
+- **User Authentication**: OAuth integration with Google and anonymous sessions
+- **Chat History**: Persistent chat sessions
+- **Modern UI**: Responsive interface with dark/light theme
 - **Scalable Architecture**: Docker-ready with Redis for session management
 - **Database Integration**: PostgreSQL with Prisma ORM
-- **Production Ready**: Multi-stage Docker builds with clustering support
 
 ## 🏗️ Architecture
 
