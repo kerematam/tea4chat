@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router } from "../trpc";
 import { withOwnerProcedure } from "../procedures";
-import { PrismaClient, type Message } from "@prisma/client";
+import { type ModelCatalog, PrismaClient, type Message } from "@prisma/client";
 import { cacheHelpers } from "../lib/redis";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
@@ -89,6 +89,33 @@ const calculateSyncDate = (direction: "backward" | "forward", messages: Message[
   return cursorDate;
 };
 
+// Helper function to determine which model to use
+const determineModelToUse = async ({
+  modelId,
+  chatModel,
+}: {
+  modelId?: string;
+  chatModel?: Pick<ModelCatalog, "provider" | "name"> | null;
+}): Promise<Pick<ModelCatalog, "provider" | "name">> => {
+  if (modelId) {
+    const model = await prisma.modelCatalog.findUnique({
+      where: { id: modelId },
+      select: { provider: true, name: true },
+    });
+
+    if (!model) throw new Error("Model not found");
+
+    return { provider: model.provider, name: model.name };
+  } else if (chatModel) {
+    return {
+      provider: chatModel.provider,
+      name: chatModel.name,
+    };
+  } else {
+    return FALLBACK_MODEL;
+  }
+};
+
 export const messageRouter = router({
   // Send a message and stream AI response in one mutation
   sendWithStream: withOwnerProcedure
@@ -120,6 +147,7 @@ export const messageRouter = router({
               orderBy: { createdAt: "asc" },
               take: 20,
             },
+            model: true,
           },
         });
         chatId = chat.id;
@@ -136,6 +164,7 @@ export const messageRouter = router({
               orderBy: { createdAt: "asc" },
               take: 20, // Get last 20 messages for context
             },
+            model: true,
           },
         });
 
@@ -155,35 +184,10 @@ export const messageRouter = router({
           },
         });
 
-        // Query the model from the database early in the process
-        let modelToUse: { provider: string; name: string } = FALLBACK_MODEL;
-        if (input.modelId) {
-          const model = await prisma.modelCatalog.findUnique({
-            where: { id: input.modelId },
-            select: { provider: true, name: true },
-          });
-
-          if (model) {
-            console.log("Found model:", model);
-            if (model.provider === "openai" || model.provider === "anthropic") {
-              modelToUse = {
-                provider: model.provider,
-                name: model.name,
-              };
-              console.log("Using model:", modelToUse);
-            } else {
-              console.log("Unsupported provider detected:", model.provider);
-              throw new Error(`Provider "${model.provider}" is not currently supported`);
-            }
-          } else {
-            console.log("Model not found, using fallback:", modelToUse);
-          }
-        }
-
-        // Ensure modelToUse is properly set
-        if (!modelToUse || !modelToUse.provider || !modelToUse.name) {
-          throw new Error("Invalid model configuration");
-        }
+        const modelToUse = await determineModelToUse({
+          modelId: input.modelId,
+          chatModel: chat.model,
+        });
 
         // yield the user message first, before database updates so that the
         // client can see it immediately
@@ -256,11 +260,7 @@ export const messageRouter = router({
             }
 
             // Determine the provider from the model query result
-            const selectedProvider = input.modelId ?
-              (await prisma.modelCatalog.findUnique({
-                where: { id: input.modelId },
-                select: { provider: true },
-              }))?.provider || "openai" : "openai";
+            const selectedProvider = modelToUse.provider;
 
             if (selectedProvider === "anthropic") {
               console.log("Streaming with Anthropic API");
