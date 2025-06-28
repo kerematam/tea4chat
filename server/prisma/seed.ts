@@ -79,6 +79,32 @@ async function main() {
       name: "claude-3-7-sonnet-latest",
       description: "Anthropic Claude-3.7 Sonnet (Latest)",
     },
+    // Mock provider models for testing and development
+    {
+      provider: "mock",
+      name: "mock-fast",
+      description: "Mock AI model with fast streaming (50ms between words) - for testing",
+    },
+    {
+      provider: "mock",
+      name: "mock-slow",
+      description: "Mock AI model with slow streaming (500ms between words) - for testing abort functionality",
+    },
+    {
+      provider: "mock",
+      name: "mock-verbose",
+      description: "Mock AI model with verbose responses (100ms between words, more content) - for testing",
+    },
+    {
+      provider: "mock",
+      name: "mock-concise",
+      description: "Mock AI model with concise responses (150ms between words, less content) - for testing",
+    },
+    {
+      provider: "mock",
+      name: "mock-creative",
+      description: "Mock AI model with creative word selection (200ms between words) - for testing",
+    },
   ];
 
   for (const model of systemModels) {

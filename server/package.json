@@ -22,7 +22,8 @@
     "db:reset": "prisma migrate reset",
     "db:seed": "prisma db seed",
     "test": "NODE_ENV=test vitest run",
-    "test:watch": "NODE_ENV=test vitest"
+    "test:watch": "NODE_ENV=test vitest",
+    "clean:port": "lsof -i :3000 | awk 'NR>1 {print $2}' | xargs kill -9"
   },
   "devDependencies": {
     "@trpc/client": "^11.1.2",

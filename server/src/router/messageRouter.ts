@@ -1,15 +1,14 @@
-import { z } from "zod";
-import { router } from "../trpc";
-import { withOwnerProcedure } from "../procedures";
-import { type ModelCatalog, PrismaClient, type Message } from "@prisma/client";
-import { cacheHelpers } from "../lib/redis";
-import OpenAI from "openai";
-import Anthropic from "@anthropic-ai/sdk";
+import { PrismaClient, type Message, type ModelCatalog } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { FALLBACK_MODEL } from "../constants/defaultOwnerSettings";
+import { createAIProviderFromModel, type AIMessage, type AIProvider } from "../lib/ai-providers";
 import { ErrorCode, STREAM_ERROR_MESSAGES } from "../lib/errors";
-import { FALLBACK_MODEL, FALLBACK_MODEL_ID } from "../constants/defaultOwnerSettings";
-import { createIsolatedIterator, type StreamMessage, type IsolatedIteratorCallbacks } from "../lib/isolated-iterator";
-import { streamAbortRegistry, createStreamId } from "../lib/stream-abort-registry";
+import { createIsolatedIterator, type IsolatedIteratorCallbacks, type StreamMessage } from "../lib/isolated-iterator";
+import { cacheHelpers } from "../lib/redis";
+import { createStreamId, streamAbortRegistry } from "../lib/stream-abort-registry";
+import { withOwnerProcedure } from "../procedures";
+import { router } from "../trpc";
 
 // TODO: type inference from prisma is not working, so we need to manually type
 // the message type for tRPC infinite query compatibility
@@ -189,6 +188,8 @@ export const messageRouter = router({
           chatModel: chat.model,
         });
 
+        console.log("modelToUse", modelToUse);
+
         // yield the user message first, before database updates so that the
         // client can see it immediately
         yield {
@@ -225,6 +226,8 @@ export const messageRouter = router({
 
         // Create streaming process function
         const streamAIResponse = async ({ emit, complete, error }: IsolatedIteratorCallbacks<StreamMessage>) => {
+          let aiProvider: undefined | AIProvider;
+          
           try {
             // Check if already aborted before starting
             if (abortController.signal.aborted) {
@@ -259,115 +262,52 @@ export const messageRouter = router({
               return;
             }
 
-            // Determine the provider from the model query result
-            const selectedProvider = modelToUse.provider;
-
-            if (selectedProvider === "anthropic") {
-              console.log("Streaming with Anthropic API");
-
-              // Use user's API key if available, otherwise fall back to environment variable
-              const anthropicApiKey = ownerSettings?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
-              if (!anthropicApiKey) {
-                throw new TRPCError({
-                  code: 'UNAUTHORIZED',
-                  message: 'Anthropic API key not configured. Please add your API key in settings.',
-                  cause: { errorCode: ErrorCode.API_KEY_MISSING, provider: 'anthropic' }
-                });
-              }
-
-              // Create Anthropic client with user's API key
-              const userAnthropic = new Anthropic({
-                apiKey: anthropicApiKey,
-              });
-
-              // Convert and filter conversation history for Anthropic API
-              const anthropicMessages = conversationHistory
-                .filter(msg => msg.content && msg.content.trim().length > 0) // Filter out empty messages
-                .map(msg => ({
-                  role: msg.role === "assistant" ? "assistant" as const : "user" as const,
-                  content: msg.content.trim()
-                }));
-
-              // Get streaming response from Anthropic
-              const stream = await userAnthropic.messages.create({
-                model: modelToUse.name,
-                messages: anthropicMessages,
-                max_tokens: 4096,
-                stream: true,
-              });
-
-              // Stream the response chunks from Anthropic
-              for await (const chunk of stream) {
-                // Check for abort signal during streaming
-                if (abortController.signal.aborted) {
-                  console.log("Anthropic stream aborted");
-                  error(new TRPCError({
-                    code: 'CLIENT_CLOSED_REQUEST',
-                    message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
-                  }));
-                  return;
-                }
-
-                if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-                  const delta = chunk.delta.text;
-                  fullContent += delta;
-                  emit({
-                    type: "aiMessageChunk",
-                    messageId: aiMessage.id,
-                    chunk: delta,
-                    chatId: chatId,
-                  });
-                }
-              }
-            } else {
-              console.log("Streaming with OpenAI API");
-
-              // Use user's API key if available, otherwise fall back to environment variable
-              const openaiApiKey = ownerSettings?.openaiApiKey || process.env.OPENAI_API_KEY;
-              if (!openaiApiKey) {
-                throw new TRPCError({
-                  code: 'UNAUTHORIZED',
-                  message: 'OpenAI API key not configured. Please add your API key in settings.',
-                  cause: { errorCode: ErrorCode.API_KEY_MISSING, provider: 'openai' }
-                });
-              }
-
-              // Create OpenAI client with user's API key
-              const userOpenAI = new OpenAI({
-                apiKey: openaiApiKey,
-              });
-
-              // Get streaming response from OpenAI
-              const completion = await userOpenAI.chat.completions.create({
-                model: modelToUse.name,
-                messages: conversationHistory,
-                max_tokens: 4096,
+            // Create AI provider using the abstraction
+            aiProvider = createAIProviderFromModel(
+              modelToUse,
+              ownerSettings || { openaiApiKey: null, anthropicApiKey: null },
+              {
+                maxTokens: 4096,
                 temperature: 0.7,
-                stream: true,
-              });
+              }
+            );
 
-              // Stream the response chunks from OpenAI
-              for await (const chunk of completion) {
-                // Check for abort signal during streaming
-                if (abortController.signal.aborted) {
-                  console.log("OpenAI stream aborted");
-                  error(new TRPCError({
-                    code: 'CLIENT_CLOSED_REQUEST',
-                    message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
-                  }));
-                  return;
-                }
+            console.log("aiProvider created");
 
-                const delta = chunk.choices[0]?.delta?.content || "";
-                if (delta) {
-                  fullContent += delta;
-                  emit({
-                    type: "aiMessageChunk",
-                    messageId: aiMessage.id,
-                    chunk: delta,
-                    chatId: chatId,
-                  });
-                }
+            // Convert conversation history to AI provider format
+            const aiMessages: AIMessage[] = conversationHistory
+              .filter(msg => msg.content && msg.content.trim().length > 0)
+              .map(msg => ({
+                role: msg.role as "user" | "assistant",
+                content: msg.content.trim(),
+              }));
+
+            console.log(`Streaming with ${aiProvider.name} provider using model ${aiProvider.model}`);
+
+            // Stream the response using the AI provider abstraction
+            for await (const chunk of aiProvider.streamResponse(aiMessages)) {
+              // Check for abort signal during streaming
+              if (abortController.signal.aborted) {
+                console.log(`${aiProvider.name} stream aborted`);
+                error(new TRPCError({
+                  code: 'CLIENT_CLOSED_REQUEST',
+                  message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
+                }));
+                return;
+              }
+
+              if (chunk.content && !chunk.isComplete) {
+                fullContent += chunk.content;
+                emit({
+                  type: "aiMessageChunk",
+                  messageId: aiMessage.id,
+                  chunk: chunk.content,
+                  chatId: chatId,
+                });
+              }
+
+              if (chunk.isComplete) {
+                break;
               }
             }
 
@@ -404,31 +344,32 @@ export const messageRouter = router({
               error(err);
             } else {
               const errorMessage = (err as any)?.message || 'Streaming error';
-              const statusCode = (err as any)?.status || (err as any)?.response?.status;
-
-              if (statusCode === 401) {
+              const providerName = aiProvider?.name || 'unknown';
+              
+              // Check for specific error patterns from AI providers
+              if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('Invalid API key')) {
                 error(new TRPCError({
                   code: 'UNAUTHORIZED',
-                  message: 'Invalid API key. Please check your API key in settings.',
-                  cause: { errorCode: ErrorCode.API_KEY_INVALID, provider: 'unknown' }
+                  message: `${providerName} API key not configured or invalid. Please check your API key in settings.`,
+                  cause: { errorCode: ErrorCode.API_KEY_INVALID, provider: providerName }
                 }));
-              } else if (statusCode === 429) {
+              } else if (errorMessage.includes('rate limit') || errorMessage.includes('Rate limit')) {
                 error(new TRPCError({
                   code: 'TOO_MANY_REQUESTS',
                   message: 'Rate limit exceeded. Please try again later.',
-                  cause: { errorCode: ErrorCode.RATE_LIMIT_EXCEEDED, provider: 'unknown' }
+                  cause: { errorCode: ErrorCode.RATE_LIMIT_EXCEEDED, provider: providerName }
                 }));
-              } else if (statusCode === 402) {
+              } else if (errorMessage.includes('quota') || errorMessage.includes('billing')) {
                 error(new TRPCError({
                   code: 'FORBIDDEN',
                   message: 'Quota exceeded. Please check your billing.',
-                  cause: { errorCode: ErrorCode.QUOTA_EXCEEDED, provider: 'unknown' }
+                  cause: { errorCode: ErrorCode.QUOTA_EXCEEDED, provider: providerName }
                 }));
               } else {
                 error(new TRPCError({
                   code: 'INTERNAL_SERVER_ERROR',
                   message: errorMessage,
-                  cause: { errorCode: ErrorCode.PROVIDER_UNAVAILABLE, provider: 'unknown' }
+                  cause: { errorCode: ErrorCode.PROVIDER_UNAVAILABLE, provider: providerName }
                 }));
               }
             }

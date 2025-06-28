@@ -1,8 +1,8 @@
-import { Hono } from 'hono';
 import { trpcServer } from '@hono/trpc-server';
-import { appRouter } from "./router";
-import type { Context } from "./context";
+import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import type { Context } from "./context";
+import { appRouter } from "./router";
 
 import { pinoLogger } from './middleware/pino-logger';
 import authRoutes from './router/authRoutes';
