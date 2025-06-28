@@ -22,6 +22,16 @@ Deep dive into the underlying implementation:
 - Advanced monitoring and debugging techniques
 - Direct Redis integration examples
 
+### 🛑 [Stream Abort Mechanism](./stream-abort-mechanism.md)
+**User-initiated stream termination and error handling**
+
+Comprehensive guide covering:
+- Graceful stream termination without error messages
+- Type-safe abort detection and error handling
+- Server-side abort registry and cleanup
+- UI integration with stop button functionality
+- Best practices and testing strategies
+
 ### 🚀 [Router Quick Start](../server/src/router/README.md)
 **Quick comparison and getting started guide**
 

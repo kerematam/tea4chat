@@ -12,6 +12,10 @@ export enum ErrorCode {
   MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',
   PROVIDER_UNAVAILABLE = 'PROVIDER_UNAVAILABLE',
   
+  // Streaming errors
+  CLIENT_CLOSED_REQUEST = 'CLIENT_CLOSED_REQUEST',
+  STREAM_ABORTED = 'STREAM_ABORTED',
+  
   // General errors
   UNAUTHORIZED = 'UNAUTHORIZED',
   FORBIDDEN = 'FORBIDDEN',
@@ -51,6 +55,8 @@ export class ApiKeyError extends AppError {
       [ErrorCode.QUOTA_EXCEEDED]: `${provider} quota exceeded`,
       [ErrorCode.MODEL_NOT_FOUND]: `${provider} model not found`,
       [ErrorCode.PROVIDER_UNAVAILABLE]: `${provider} unavailable`,
+      [ErrorCode.CLIENT_CLOSED_REQUEST]: `${provider} stream was aborted by client`,
+      [ErrorCode.STREAM_ABORTED]: `${provider} stream was aborted`,
       [ErrorCode.UNAUTHORIZED]: `${provider} unauthorized`,
       [ErrorCode.FORBIDDEN]: `${provider} forbidden`,
       [ErrorCode.INTERNAL_ERROR]: `${provider} internal error`,
@@ -99,6 +105,40 @@ export class ProviderUnavailableError extends AppError {
       503
     );
   }
+}
+
+export class StreamAbortError extends AppError {
+  constructor(message: string = 'Stream was aborted') {
+    super(ErrorCode.CLIENT_CLOSED_REQUEST, message, 499); // 499 = Client Closed Request
+  }
+}
+
+// Stream error constants and utilities
+export const STREAM_ERROR_MESSAGES = {
+  ABORTED_BEFORE_START: 'Stream was aborted before starting',
+  ABORTED_DURING_PROCESSING: 'Stream was aborted',
+  CLIENT_DISCONNECTED: 'Client disconnected',
+} as const;
+
+// Helper function to check if an error is a user-initiated abort
+export function isUserAbortError(error: unknown): boolean {
+  // Check error code
+  if (error && typeof error === 'object') {
+    if ('code' in error && error.code === ErrorCode.CLIENT_CLOSED_REQUEST) {
+      return true;
+    }
+    
+    // Check error message for abort-related keywords
+    if ('message' in error) {
+      const message = String(error.message);
+      return message.includes('CLIENT_CLOSED_REQUEST') || 
+             message.includes('Stream was aborted') ||
+             message.includes('Client disconnected') ||
+             Object.values(STREAM_ERROR_MESSAGES).some(msg => message.includes(msg));
+    }
+  }
+  
+  return false;
 }
 
 // Helper function to parse API errors and convert them to our error types

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { trpc } from "../services/trpc";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
+import { isUserAbortError } from "../../../server/src/lib/errors";
 
 // MessageType for client-side (createdAt is serialized as string)
 export type MessageType = {
@@ -106,11 +107,32 @@ export const useChatMessages = ({
         }
       } catch (err) {
         console.error("Stream processing error:", err);
-        error(`Failed to process stream: ${(err as Error).message}`);
+        // Don't show error if user aborted the stream
+        if (!isUserAbortError(err)) {
+          error(`Failed to process stream: ${(err as Error).message}`);
+        }
       }
     },
     onError: (err) => {
-      error(`Failed to send message: ${err.message}`);
+      // Don't show error if user aborted the stream
+      if (!isUserAbortError(err)) {
+        error(`Failed to send message: ${err.message}`);
+      }
+    },
+  });
+
+  // Abort stream mutation
+  const abortStreamMutation = trpc.message.abortStream.useMutation({
+    onSuccess: (result) => {
+      if (result.success) {
+        console.log("Stream aborted successfully");
+      } else {
+        console.log("No active stream found to abort");
+      }
+    },
+    onError: (err) => {
+      console.error("Failed to abort stream:", err);
+      error(`Failed to abort stream: ${err.message}`);
     },
   });
 
@@ -243,6 +265,15 @@ export const useChatMessages = ({
     });
   }, [chatId, sendMessageMutation]);
 
+  // Abort stream function
+  const abortStream = useCallback(() => {
+    if (!chatId || !sendMessageMutation.isPending) return;
+
+    abortStreamMutation.mutate({
+      chatId,
+    });
+  }, [chatId, sendMessageMutation.isPending, abortStreamMutation]);
+
   // Default streaming update handler - COPIED FROM WORKING IMPLEMENTATION
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
     switch (chunk.type) {
@@ -363,6 +394,8 @@ export const useChatMessages = ({
     // Message sending
     sendMessage,
     isSending: sendMessageMutation.isPending,
+    abortStream,
+    isAborting: abortStreamMutation.isPending,
 
     // Cache helpers
     addNewMessages,

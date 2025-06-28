@@ -6,9 +6,10 @@ import { cacheHelpers } from "../lib/redis";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { TRPCError } from "@trpc/server";
-import { ErrorCode } from "../lib/errors";
+import { ErrorCode, STREAM_ERROR_MESSAGES } from "../lib/errors";
 import { FALLBACK_MODEL, FALLBACK_MODEL_ID } from "../constants/defaultOwnerSettings";
 import { createIsolatedIterator, type StreamMessage, type IsolatedIteratorCallbacks } from "../lib/isolated-iterator";
+import { streamAbortRegistry, createStreamId } from "../lib/stream-abort-registry";
 
 // TODO: type inference from prisma is not working, so we need to manually type
 // the message type for tRPC infinite query compatibility
@@ -214,9 +215,22 @@ export const messageRouter = router({
           },
         });
 
+        // Register this stream for potential abortion
+        const streamId = createStreamId(chatId, ctx.owner.id);
+        const abortController = streamAbortRegistry.register(streamId);
+
         // Create streaming process function
         const streamAIResponse = async ({ emit, complete, error }: IsolatedIteratorCallbacks<StreamMessage>) => {
           try {
+            // Check if already aborted before starting
+            if (abortController.signal.aborted) {
+              error(new TRPCError({
+                code: 'CLIENT_CLOSED_REQUEST',
+                message: STREAM_ERROR_MESSAGES.ABORTED_BEFORE_START
+              }));
+              return;
+            }
+
             // Emit the initial AI message
             emit({
               type: "aiMessageStart",
@@ -231,6 +245,15 @@ export const messageRouter = router({
               where: { ownerId: ctx.owner.id },
               select: { openaiApiKey: true, anthropicApiKey: true },
             });
+
+            // Check abort signal after async operation
+            if (abortController.signal.aborted) {
+              error(new TRPCError({
+                code: 'CLIENT_CLOSED_REQUEST',
+                message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
+              }));
+              return;
+            }
 
             // Determine the provider from the model query result
             const selectedProvider = input.modelId ?
@@ -275,6 +298,16 @@ export const messageRouter = router({
 
               // Stream the response chunks from Anthropic
               for await (const chunk of stream) {
+                // Check for abort signal during streaming
+                if (abortController.signal.aborted) {
+                  console.log("Anthropic stream aborted");
+                  error(new TRPCError({
+                    code: 'CLIENT_CLOSED_REQUEST',
+                    message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
+                  }));
+                  return;
+                }
+
                 if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
                   const delta = chunk.delta.text;
                   fullContent += delta;
@@ -315,6 +348,16 @@ export const messageRouter = router({
 
               // Stream the response chunks from OpenAI
               for await (const chunk of completion) {
+                // Check for abort signal during streaming
+                if (abortController.signal.aborted) {
+                  console.log("OpenAI stream aborted");
+                  error(new TRPCError({
+                    code: 'CLIENT_CLOSED_REQUEST',
+                    message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
+                  }));
+                  return;
+                }
+
                 const delta = chunk.choices[0]?.delta?.content || "";
                 if (delta) {
                   fullContent += delta;
@@ -389,6 +432,9 @@ export const messageRouter = router({
                 }));
               }
             }
+          } finally {
+            // Always cleanup the stream from registry when done
+            streamAbortRegistry.cleanup(streamId);
           }
         };
 
@@ -459,5 +505,48 @@ export const messageRouter = router({
       };
     }),
 
+  // Abort an active streaming operation
+  abortStream: withOwnerProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!ctx.owner) {
+        throw new Error("Owner not found");
+      }
+
+      const streamId = createStreamId(input.chatId, ctx.owner.id);
+      const wasAborted = streamAbortRegistry.abort(streamId);
+
+      return {
+        success: wasAborted,
+        message: wasAborted 
+          ? "Stream aborted successfully" 
+          : "No active stream found for this chat"
+      };
+    }),
+
+  // Get active streams for debugging/monitoring
+  getActiveStreams: withOwnerProcedure
+    .query(async ({ ctx }) => {
+      if (!ctx.owner) {
+        throw new Error("Owner not found");
+      }
+
+      const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
+      // Filter streams that belong to this owner
+      const ownerStreams = allActiveStreams.filter(streamId => 
+        streamId.endsWith(`:${ctx.owner.id}`)
+      );
+
+      return {
+        activeStreams: ownerStreams.map(streamId => ({
+          streamId,
+          chatId: streamId.split(':')[0]
+        }))
+      };
+    }),
 
 }); 

@@ -1,12 +1,12 @@
-import { CircularProgress } from "@mui/material";
 import { IconButton } from "@mui/material";
 import { Box } from "@mui/material";
 import { ChatTextField } from "../ChatTextField/ChatTextField";
 import { useState } from "react";
 import { trpc } from "../../services/trpc";
-import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
+import { useChatMessages } from "../../hooks/useChatMessages";
 
 import SendIcon from "@mui/icons-material/Send";
+import StopIcon from "@mui/icons-material/Stop";
 import { useNavigate } from "react-router-dom";
 
 export const ChatTextForm = ({
@@ -39,6 +39,12 @@ export const ChatTextForm = ({
     }
   };
 
+  const handleAbort = () => {
+    if (hookResult.isSending && chatId) {
+      hookResult.abortStream();
+    }
+  };
+
   const currentIsLoading = hookResult.isSending;
 
   return (
@@ -65,19 +71,20 @@ export const ChatTextForm = ({
         placeholder={placeholder}
       />
       <IconButton
-        type="submit"
+        type={currentIsLoading ? "button" : "submit"}
         color="primary"
-        disabled={currentIsLoading || !question.trim()}
+        disabled={!currentIsLoading && !question.trim()}
+        onClick={currentIsLoading ? handleAbort : undefined}
         sx={{
           p: "10px",
           "&:focus": { color: "text.primary" },
           alignSelf: "flex-end",
           minHeight: 28,
         }}
-        aria-label="send message"
+        aria-label={currentIsLoading ? "abort message" : "send message"}
       >
         {currentIsLoading ? (
-          <CircularProgress size={20} color="inherit" />
+          <StopIcon sx={{ fontSize: 20 }} />
         ) : (
           <SendIcon sx={{ fontSize: 20 }} />
         )}
