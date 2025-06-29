@@ -314,45 +314,25 @@ export class NativeStreamEmitter {
   async *subscribeWithReplay(streamId: string): AsyncGenerator<StreamChunk, void, unknown> {
     console.log(`🎧 Native subscribe with replay: ${streamId}`);
 
-    // Set up queuing for new chunks FIRST, before getting historical data
-    const chunkQueue: StreamChunk[] = [];
-    let streamCompleted = false;
-    let resolveNext: ((chunk: StreamChunk | null) => void) | null = null;
-    const waitForNextChunk = (): Promise<StreamChunk | null> => {
-      return new Promise((resolve) => {
-        if (chunkQueue.length > 0) {
-          const chunk = chunkQueue.shift()!;
-          resolve(chunk);
-          return;
-        }
-
-        if (streamCompleted) {
-          resolve(null);
-          return;
-        }
-
-        resolveNext = resolve;
-      });
-    };
+    // Create a ReadableStream to queue new chunks FIRST, before getting historical data
+    let streamController: ReadableStreamDefaultController<StreamChunk> | null = null;
+    const chunkStream = new ReadableStream<StreamChunk>({
+      start(controller) {
+        streamController = controller;
+      },
+    });
 
     // Subscribe to new events FIRST to avoid missing messages during history iteration
-    const emitter = this;
-    const unsubscribe = emitter.subscribe(streamId, (chunk: StreamChunk) => {
+    const unsubscribe = this.subscribe(streamId, (chunk: StreamChunk) => {
       console.log(`📨 Native live chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
 
-      chunkQueue.push(chunk);
+      if (streamController) {
+        streamController.enqueue(chunk);
 
-      if (resolveNext) {
-        const nextChunk = chunkQueue.shift()!;
-        resolveNext(nextChunk);
-        resolveNext = null;
-      }
-
-      if (chunk.type === 'complete' || chunk.type === 'error') {
-        streamCompleted = true;
-        if (resolveNext && chunkQueue.length === 0) {
-          resolveNext(null);
-          resolveNext = null;
+        // Close the stream when we get a terminal chunk
+        if (chunk.type === 'complete' || chunk.type === 'error') {
+          streamController.close();
+          streamController = null;
         }
       }
     });
@@ -376,24 +356,37 @@ export class NativeStreamEmitter {
         console.log(`📭 No historical chunks found for ${streamId}`);
       }
 
-      // Now yield new chunks as they arrive
-      while (true) {
-        const chunk = await waitForNextChunk();
+      // Now iterate through the ReadableStream for new chunks
+      const reader = chunkStream.getReader();
+      
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            console.log(`🏁 Native stream completed for ${streamId}`);
+            break;
+          }
 
-        if (chunk === null) {
-          console.log(`🏁 Native stream completed for ${streamId}`);
-          break;
+          console.log(`📤 Native yielding live chunk ${value.chunkNumber} for ${streamId}: ${value.type}`);
+          yield value;
+
+          if (value.type === 'complete' || value.type === 'error') {
+            console.log(`🏁 Terminal chunk received for ${streamId}: ${value.type}`);
+            break;
+          }
         }
-
-        yield chunk;
-
-        if (chunk.type === 'complete' || chunk.type === 'error') {
-          console.log(`🏁 Terminal chunk received for ${streamId}: ${chunk.type}`);
-          break;
-        }
+      } finally {
+        reader.releaseLock();
       }
     } finally {
-      unsubscribe();
+      (unsubscribe as () => void)();
+      
+      // Close stream if still open
+      if (streamController) {
+        streamController.close();
+      }
+      
       console.log(`📡 Native subscription closed for ${streamId}`);
     }
   }
