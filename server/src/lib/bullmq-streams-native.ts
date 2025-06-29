@@ -289,104 +289,56 @@ export class NativeStreamEmitter {
     });
   }
 
-  // Subscribe to stream with automatic historical replay
-  async subscribeWithReplay_prev(streamId: string, listener: (chunk: StreamChunk) => void): Promise<() => void> {
-    console.log(`🎧 Native subscribe with replay: ${streamId}`);
-
-    // Get historical chunks first
-    const nativeStreamManager = NativeStreamManager.getInstance();
-    const historicalChunks = await nativeStreamManager.getStreamProgress(streamId);
-
-    if (historicalChunks && historicalChunks.length > 0) {
-      console.log(`📦 Replaying ${historicalChunks.length} historical chunks for ${streamId}`);
-
-      // Emit historical chunks
-      for (const chunk of historicalChunks) {
-        listener(chunk);
-      }
-    }
-
-    // Then subscribe to new chunks
-    return this.subscribe(streamId, listener);
-  }
-
   // Subscribe to stream with automatic historical replay - returns async generator
   async *subscribeWithReplay(streamId: string): AsyncGenerator<StreamChunk, void, unknown> {
     console.log(`🎧 Native subscribe with replay: ${streamId}`);
 
-    // Create a ReadableStream to queue new chunks FIRST, before getting historical data
-    let streamController: ReadableStreamDefaultController<StreamChunk> | null = null;
+    // Store unsubscribe function for cleanup
+    let unsubscribe: (() => void) | null = null;
+
+    // Create a ReadableStream that handles subscription in its start function
     const chunkStream = new ReadableStream<StreamChunk>({
-      start(controller) {
-        streamController = controller;
-      },
-    });
+      start: (controller) => {
+        // Subscribe to new events FIRST to avoid missing messages during history iteration
+        unsubscribe = this.subscribe(streamId, (chunk: StreamChunk) => {
+          console.log(`📨 Native live chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
 
-    // Subscribe to new events FIRST to avoid missing messages during history iteration
-    const unsubscribe = this.subscribe(streamId, (chunk: StreamChunk) => {
-      console.log(`📨 Native live chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
+          controller.enqueue(chunk);
 
-      if (streamController) {
-        streamController.enqueue(chunk);
-
-        // Close the stream when we get a terminal chunk
-        if (chunk.type === 'complete' || chunk.type === 'error') {
-          streamController.close();
-          streamController = null;
-        }
+          // Close the stream when we get a terminal chunk
+          if (chunk.type === 'complete' || chunk.type === 'error') {
+            controller.close();
+          }
+        });
       }
     });
 
     try {
       // Now get and yield historical chunks AFTER we're listening for new ones
       const nativeStreamManager = NativeStreamManager.getInstance();
-      const historicalChunks = await nativeStreamManager.getStreamProgress(streamId);
+      const historicalChunks = await nativeStreamManager.getStreamProgress(streamId) || [];
 
-      if (historicalChunks && historicalChunks.length > 0) {
-        console.log(`📦 Replaying ${historicalChunks.length} historical chunks for ${streamId}`);
-
-        // Yield all historical chunks
-        for (const chunk of historicalChunks) {
-          console.log(`📺 Native historical chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
-          yield chunk;
-        }
-
-        console.log(`✅ Historical replay completed for ${streamId}`);
-      } else {
-        console.log(`📭 No historical chunks found for ${streamId}`);
+      for (const chunk of historicalChunks) {
+        console.log(`📺 Native historical chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
+        yield chunk;
       }
 
-      // Now iterate through the ReadableStream for new chunks
-      const reader = chunkStream.getReader();
-      
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) {
-            console.log(`🏁 Native stream completed for ${streamId}`);
-            break;
-          }
+      // Now use for-await to iterate through new chunks
+      for await (const chunk of chunkStream) {
+        console.log(`📤 Native yielding live chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
+        yield chunk;
 
-          console.log(`📤 Native yielding live chunk ${value.chunkNumber} for ${streamId}: ${value.type}`);
-          yield value;
-
-          if (value.type === 'complete' || value.type === 'error') {
-            console.log(`🏁 Terminal chunk received for ${streamId}: ${value.type}`);
-            break;
-          }
+        if (chunk.type === 'complete' || chunk.type === 'error') {
+          console.log(`🏁 Terminal chunk received for ${streamId}: ${chunk.type}`);
+          break;
         }
-      } finally {
-        reader.releaseLock();
       }
+
+      console.log(`🏁 Native stream completed for ${streamId}`);
     } finally {
-      (unsubscribe as () => void)();
-      
-      // Close stream if still open
-      if (streamController) {
-        streamController.close();
+      if (unsubscribe) {
+        (unsubscribe as () => void)();
       }
-      
       console.log(`📡 Native subscription closed for ${streamId}`);
     }
   }
