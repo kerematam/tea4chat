@@ -5,10 +5,10 @@ import { messageRouter } from "./messageRouter";
 import { modelRouter } from "./modelRouter";
 import { settingsRouter } from "./settingsRouter";
 import { streamRouter } from "./streamRouter";
-import { streamRouterBullMQ } from "./streamRouter.bullmq";
+// import { streamRouterBullMQ } from "./streamRouter.bullmq";
 import { streamRouterEventSourced } from "./streamRouter.event-sourced";
 import { nativeStreamRouter } from "./streamRouter.native";
-import { simpleStreamRouter } from "./streamRouter.simple";
+// import { simpleStreamRouter } from "./streamRouter.simple";
 import { trackerRouter } from "./trackerRouter";
 
 export const appRouter = router({
@@ -19,8 +19,8 @@ export const appRouter = router({
   settings: settingsRouter,
   stream: streamRouter,
   streamEventSourced: streamRouterEventSourced,
-  streamBullMQ: streamRouterBullMQ,
-  simple: simpleStreamRouter,
+  // streamBullMQ: streamRouterBullMQ,
+  // simple: simpleStreamRouter,
   native: nativeStreamRouter,
   // hello: withOwnerProcedure
   //   .input(z.object({ name: z.string().optional() }))

@@ -179,6 +179,7 @@ export function generateStreamId(): string {
  */
 export async function startStream(data: StreamJobData): Promise<{ jobId: string; streamId: string }> {
   const job = await streamQueue.add('process-stream', data, {
+    jobId: data.streamId, // Use streamId as jobId for direct lookup
     removeOnComplete: true,
     removeOnFail: true,
   });
@@ -188,13 +189,12 @@ export async function startStream(data: StreamJobData): Promise<{ jobId: string;
 }
 
 /**
- * Stop a stream by finding its job
+ * Stop a stream by direct job lookup
  */
 export async function stopStream(streamId: string): Promise<boolean> {
   try {
-    // Find job by searching active jobs
-    const activeJobs = await streamQueue.getActive();
-    const job = activeJobs.find(j => j.data.streamId === streamId);
+    // Direct lookup using streamId as jobId
+    const job = await Job.fromId(streamQueue, streamId);
 
     if (job) {
       await job.remove();
@@ -210,17 +210,12 @@ export async function stopStream(streamId: string): Promise<boolean> {
 }
 
 /**
- * Get stream progress by finding the job
+ * Get stream progress by direct job lookup
  */
 export async function getStreamProgress(streamId: string): Promise<StreamChunk[] | null> {
   try {
-    // Search in active and completed jobs
-    const [activeJobs, completedJobs] = await Promise.all([
-      streamQueue.getActive(),
-      streamQueue.getCompleted()
-    ]);
-
-    const job = [...activeJobs, ...completedJobs].find(j => j.data.streamId === streamId);
+    // Direct lookup using streamId as jobId
+    const job = await Job.fromId(streamQueue, streamId);
 
     if (job) {
       const progress = job.progress as StreamChunk[];
@@ -265,14 +260,17 @@ export async function* subscribeToStream(streamId: string): AsyncGenerator<Strea
     yield chunk;
   }
 
+  let listener: (data: { jobId: string; data: unknown }) => void;
+
   // Listen for new chunks via QueueEvents
   const chunkStream = new ReadableStream<StreamChunk>({
     start: (controller) => {
-      const listener = ({ data }: { jobId: string; data: any }) => {
+      listener = ({ jobId, data }) => {
+        if (jobId !== streamId) return;
         const chunks = Array.isArray(data) ? data as StreamChunk[] : [];
         const latestChunk = chunks[chunks.length - 1];
 
-        if (latestChunk && latestChunk.streamId === streamId) {
+        if (latestChunk) {
           console.log(`📨 Live chunk ${latestChunk.chunkNumber} for ${streamId}: ${latestChunk.type}`);
           controller.enqueue(latestChunk);
 
@@ -283,11 +281,6 @@ export async function* subscribeToStream(streamId: string): AsyncGenerator<Strea
       };
 
       queueEvents.on('progress', listener);
-      
-      // Store cleanup function
-      (controller as any)._cleanup = () => {
-        queueEvents.off('progress', listener);
-      };
     }
   });
 
@@ -303,10 +296,7 @@ export async function* subscribeToStream(streamId: string): AsyncGenerator<Strea
       }
     }
   } finally {
-    // Cleanup
-    if ((chunkStream as any)._cleanup) {
-      (chunkStream as any)._cleanup();
-    }
+    queueEvents.off('progress', listener!);
     console.log(`📡 Subscription closed for ${streamId}`);
   }
 }
