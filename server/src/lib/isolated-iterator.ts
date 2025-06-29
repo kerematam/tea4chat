@@ -123,11 +123,3 @@ export function createIsolatedIterator<T>(
 
   return iterator;
 }
-
-export type StreamMessage = {
-  type: "userMessage" | "aiMessageStart" | "aiMessageChunk" | "aiMessageComplete";
-  message?: any;
-  messageId?: string;
-  chunk?: string;
-  chatId: string;
-}; 

@@ -4,11 +4,19 @@ import { z } from "zod";
 import { FALLBACK_MODEL } from "../constants/defaultOwnerSettings";
 import { createAIProviderFromModel, type AIMessage, type AIProvider } from "../lib/ai-providers";
 import { ErrorCode, STREAM_ERROR_MESSAGES } from "../lib/errors";
-import { createIsolatedIterator, type IsolatedIteratorCallbacks, type StreamMessage } from "../lib/isolated-iterator";
+import { createIsolatedStream, type IsolatedStreamCallbacks } from "../lib/isolated-stream";
 import { cacheHelpers } from "../lib/redis";
 import { createStreamId, streamAbortRegistry } from "../lib/stream-abort-registry";
 import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
+
+export type StreamMessage = {
+  type: "userMessage" | "aiMessageStart" | "aiMessageChunk" | "aiMessageComplete";
+  message?: any;
+  messageId?: string;
+  chunk?: string;
+  chatId: string;
+};
 
 // TODO: type inference from prisma is not working, so we need to manually type
 // the message type for tRPC infinite query compatibility
@@ -225,9 +233,9 @@ export const messageRouter = router({
         const abortController = streamAbortRegistry.register(streamId);
 
         // Create streaming process function
-        const streamAIResponse = async ({ emit, complete, error }: IsolatedIteratorCallbacks<StreamMessage>) => {
+        const streamAIResponse = async ({ enqueue, close, error }: IsolatedStreamCallbacks<StreamMessage>) => {
           let aiProvider: undefined | AIProvider;
-          
+
           try {
             // Check if already aborted before starting
             if (abortController.signal.aborted) {
@@ -239,7 +247,7 @@ export const messageRouter = router({
             }
 
             // Emit the initial AI message
-            emit({
+            enqueue({
               type: "aiMessageStart",
               message: aiMessage as MessageType,
               chatId: chatId,
@@ -298,7 +306,7 @@ export const messageRouter = router({
 
               if (chunk.content && !chunk.isComplete) {
                 fullContent += chunk.content;
-                emit({
+                enqueue({
                   type: "aiMessageChunk",
                   messageId: aiMessage.id,
                   chunk: chunk.content,
@@ -321,7 +329,7 @@ export const messageRouter = router({
             });
 
             // Emit the final complete message
-            emit({
+            enqueue({
               type: "aiMessageComplete",
               message: updatedAiMessage as MessageType,
               chatId: chatId,
@@ -334,7 +342,7 @@ export const messageRouter = router({
             ]);
 
             // Mark the stream as complete
-            complete();
+            close();
 
           } catch (err) {
             console.error("Error in AI streaming process:", err);
@@ -345,7 +353,7 @@ export const messageRouter = router({
             } else {
               const errorMessage = (err as any)?.message || 'Streaming error';
               const providerName = aiProvider?.name || 'unknown';
-              
+
               // Check for specific error patterns from AI providers
               if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('Invalid API key')) {
                 error(new TRPCError({
@@ -380,10 +388,10 @@ export const messageRouter = router({
         };
 
         // Create isolated iterator with streaming process, so that if request drops; request can still complete
-        const iterator = createIsolatedIterator<StreamMessage>(streamAIResponse);
+        const stream = createIsolatedStream<StreamMessage>(streamAIResponse);
 
         // Forward items to the client only while the connection is active
-        for await (const item of iterator) {
+        for await (const item of stream) {
           yield item;
         }
 
@@ -463,8 +471,8 @@ export const messageRouter = router({
 
       return {
         success: wasAborted,
-        message: wasAborted 
-          ? "Stream aborted successfully" 
+        message: wasAborted
+          ? "Stream aborted successfully"
           : "No active stream found for this chat"
       };
     }),
@@ -478,7 +486,7 @@ export const messageRouter = router({
 
       const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
       // Filter streams that belong to this owner
-      const ownerStreams = allActiveStreams.filter(streamId => 
+      const ownerStreams = allActiveStreams.filter(streamId =>
         streamId.endsWith(`:${ctx.owner.id}`)
       );
 
