@@ -42,6 +42,7 @@
     "@types/express": "^5.0.1",
     "@types/ioredis": "^4.28.10",
     "better-auth": "^1.2.8",
+    "bullmq": "^5.56.0",
     "cors": "^2.8.5",
     "express": "^5.0.0",
     "hono": "^4.7.10",

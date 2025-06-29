@@ -1,17 +1,22 @@
 import { CssBaseline } from "@mui/material";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { lazy, Suspense } from "react";
-import CommonLayout from "./layouts/Common";
-import ThemeProvider from "./theme/ThemeProvider";
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { queryClient, persistOptions } from "./services/queryClient";
-import { TrpcProvider } from "./providers/TrpcProvider";
-import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
+import {
+  PersistQueryClientOptions,
+  PersistQueryClientProvider,
+} from "@tanstack/react-query-persist-client";
+import { lazy, Suspense } from "react";
+import { Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import AdminRoute from "./components/AdminRoute";
+import CommonLayout from "./layouts/Common";
 import { StreamTest } from "./pages/StreamTest/StreamTest";
+import { StreamTestBullMQ } from "./pages/StreamTest/StreamTestBullMQ";
 import { StreamTestEventSourced } from "./pages/StreamTest/StreamTestEventSourced";
-import { PersistQueryClientOptions } from "@tanstack/react-query-persist-client";
+import StreamTestNative from "./pages/StreamTest/StreamTestNative";
+import StreamTestSimple from "./pages/StreamTest/StreamTestSimple";
+import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
+import { TrpcProvider } from "./providers/TrpcProvider";
+import { persistOptions, queryClient } from "./services/queryClient";
+import ThemeProvider from "./theme/ThemeProvider";
 
 const Chat = lazy(() => import("./pages/Chat/Chat"));
 const ChatList = lazy(() => import("./pages/ChatList/ChatList"));
@@ -66,6 +71,18 @@ function App() {
                   <Route
                     path="stream-test-event-sourced"
                     element={<StreamTestEventSourced />}
+                  />
+                  <Route
+                    path="stream-test-bullmq"
+                    element={<StreamTestBullMQ />}
+                  />
+                  <Route
+                    path="stream-test-simple"
+                    element={<StreamTestSimple />}
+                  />
+                  <Route
+                    path="stream-test-native"
+                    element={<StreamTestNative />}
                   />
 
                   <Route path="403" element={<Forbidden />} />

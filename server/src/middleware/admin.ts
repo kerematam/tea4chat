@@ -1,6 +1,5 @@
 import { TRPCError } from "@trpc/server";
 import { middleware } from "../trpc";
-import type { Context } from "../context";
 
 // Create admin middleware that checks for admin permissions
 export const isAdmin = middleware(async ({ ctx, next }) => {
