@@ -1,12 +1,19 @@
 /**
- * Native BullMQ Stream Router
+ * Utility-based Stream Router
  * 
- * Uses BullMQ's native job.progress and QueueEvents.on('progress') 
- * for historical replay and real-time streaming.
+ * Uses stateless utility functions instead of classes/singletons.
+ * Better suited for cluster/serverless environments.
  */
 
 import { z } from 'zod';
-import { getNativeQueueMetrics, nativeStreamEmitter, nativeStreamManager } from '../lib/bullmq-streams-native';
+import { 
+  generateStreamId, 
+  startStream, 
+  stopStream, 
+  getActiveStreams, 
+  getQueueMetrics,
+  subscribeToStream 
+} from '../lib/bullmq-utils';
 import { withOwnerProcedure } from '../procedures/base';
 
 export const nativeStreamRouter = {
@@ -19,9 +26,9 @@ export const nativeStreamRouter = {
       config: z.record(z.any()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const streamId = nativeStreamManager.generateStreamId();
+      const streamId = generateStreamId();
       
-      const result = await nativeStreamManager.startStream({
+      const result = await startStream({
         streamId,
         type: input.type,
         intervalMs: input.intervalMs,
@@ -47,7 +54,7 @@ export const nativeStreamRouter = {
       streamId: z.string(),
     }))
     .mutation(async ({ input }) => {
-      const stopped = await nativeStreamManager.stopStream(input.streamId);
+      const stopped = await stopStream(input.streamId);
       
       return {
         streamId: input.streamId,
@@ -59,7 +66,7 @@ export const nativeStreamRouter = {
   // Get active streams
   getActiveStreams: withOwnerProcedure
     .query(async () => {
-      const activeStreams = nativeStreamManager.getActiveStreams();
+      const activeStreams = await getActiveStreams();
       
       return {
         streams: activeStreams,
@@ -71,19 +78,18 @@ export const nativeStreamRouter = {
   // Get queue metrics
   getMetrics: withOwnerProcedure
     .query(async () => {
-      return await getNativeQueueMetrics();
+      return await getQueueMetrics();
     }),
 
-  // Listen to stream - returns async generator that yields events (like sendWithStream)
+  // Listen to stream - returns async generator
   listenToStream: withOwnerProcedure
     .input(z.object({
       streamId: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      console.log(`🎧 User ${ctx.owner?.id} listening to native stream: ${input.streamId}`);
+      console.log(`🎧 User ${ctx.owner?.id} listening to stream: ${input.streamId}`);
       
-      // Simply return the async generator from subscribeWithReplay
-      // It handles both historical replay AND new chunks automatically!
-      return nativeStreamEmitter.subscribeWithReplay(input.streamId);
+      // Return the async generator from subscribeToStream
+      return subscribeToStream(input.streamId);
     }),
 }; 
