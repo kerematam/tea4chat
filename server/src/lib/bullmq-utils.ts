@@ -26,7 +26,10 @@ export interface StreamJobData {
   maxChunks?: number;
   ownerId?: string;
   config?: Record<string, any>;
+  shouldStop?: boolean;
+  stoppedAt?: string;
 }
+
 
 export interface StreamChunk {
   type: 'start' | 'chunk' | 'complete' | 'error';
@@ -41,8 +44,16 @@ export interface StreamChunk {
 const QUEUE_CONFIG = {
   connection: createRedisConnection(),
   defaultJobOptions: {
-    removeOnComplete: 50,
-    removeOnFail: 10,
+    removeOnComplete: true,
+    removeOnFail: true,
+    // removeOnComplete: {
+    //   age: 3600, // Keep completed jobs for 1 hour
+    //   count: 100, // Keep max 100 completed jobs
+    // },
+    // removeOnFail: {
+    //   age: 24 * 3600, // Keep failed jobs for 24 hours (debugging)
+    //   count: 50, // Keep max 50 failed jobs
+    // },
     attempts: 3,
     backoff: {
       type: 'exponential' as const,
@@ -75,22 +86,26 @@ const processStreamJob = async (job: Job<StreamJobData>) => {
 
   console.log(`🚀 Starting stream job: ${streamId}`);
 
-  // Initialize with start chunk
-  const startChunk: StreamChunk = {
-    type: 'start',
-    streamId,
-    chunkNumber: 0,
-    timestamp: new Date().toISOString(),
-    metadata: { jobId: job.id, type }
-  };
+  try {
+    // Initialize with start chunk
+    const startChunk: StreamChunk = {
+      type: 'start',
+      streamId,
+      chunkNumber: 0,
+      timestamp: new Date().toISOString(),
+      metadata: { jobId: job.id, type }
+    };
 
-  await job.updateProgress([startChunk]);
+    await job.updateProgress([startChunk]);
 
-  // Generate chunks
-  for (let i = 1; i <= maxChunks; i++) {
-    if (await job.isCompleted() || await job.isFailed()) {
-      break;
-    }
+    // Generate chunks
+    for (let i = 1; i <= maxChunks; i++) {
+      // Check for stop signal in job data (distributed across all workers)
+      const currentJob = await Job.fromId(streamQueue, streamId);
+      if (await job.isCompleted() || await job.isFailed() || currentJob?.data.shouldStop) {
+        console.log(`🛑 Stop signal received for stream: ${streamId}`);
+        break;
+      }
 
     let content = '';
     switch (type) {
@@ -123,31 +138,34 @@ const processStreamJob = async (job: Job<StreamJobData>) => {
 
     console.log(`📝 Stream ${streamId}: Chunk ${i}/${maxChunks}`);
     await new Promise(resolve => setTimeout(resolve, intervalMs));
-  }
-
-  // Complete the stream
-  const currentProgress = (job.progress as StreamChunk[]) || [];
-  const completeChunk: StreamChunk = {
-    type: 'complete',
-    streamId,
-    chunkNumber: currentProgress.length,
-    timestamp: new Date().toISOString(),
-    metadata: {
-      totalChunks: currentProgress.length - 1,
-      duration: Date.now() - new Date(currentProgress[0]?.timestamp || new Date()).getTime()
     }
-  };
 
-  const finalProgress = [...currentProgress, completeChunk];
-  await job.updateProgress(finalProgress);
+    // Complete the stream
+    const currentProgress = (job.progress as StreamChunk[]) || [];
+    const completeChunk: StreamChunk = {
+      type: 'complete',
+      streamId,
+      chunkNumber: currentProgress.length,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        totalChunks: currentProgress.length - 1,
+        duration: Date.now() - new Date(currentProgress[0]?.timestamp || new Date()).getTime()
+      }
+    };
 
-  console.log(`✅ Stream ${streamId} completed`);
+    const finalProgress = [...currentProgress, completeChunk];
+    await job.updateProgress(finalProgress);
 
-  return {
-    streamId,
-    totalChunks: currentProgress.length,
-    status: 'completed'
-  };
+    console.log(`✅ Stream ${streamId} completed`);
+
+    return {
+      streamId,
+      totalChunks: currentProgress.length,
+      status: 'completed'
+    };
+  } finally {
+    // Cleanup complete
+  }
 };
 
 // Worker instance
@@ -193,15 +211,22 @@ export async function startStream(data: StreamJobData): Promise<{ jobId: string;
  */
 export async function stopStream(streamId: string): Promise<boolean> {
   try {
-    // Direct lookup using streamId as jobId
+    // Get the job and update its data to signal stop (distributed via Redis)
     const job = await Job.fromId(streamQueue, streamId);
-
+    
     if (job) {
-      await job.remove();
-      console.log(`🛑 Stopped stream: ${streamId}`);
+      // Update job data with stop signal - this is distributed via Redis
+      await job.updateData({
+        ...job.data,
+        shouldStop: true,
+        stoppedAt: new Date().toISOString()
+      });
+      
+      console.log(`🛑 Stop signal sent for stream: ${streamId}`);
       return true;
     }
 
+    console.log(`⚠️ Stream ${streamId} not found`);
     return false;
   } catch (error) {
     console.error(`❌ Error stopping stream ${streamId}:`, error);
@@ -277,14 +302,41 @@ export async function* subscribeToStream(streamId: string): AsyncGenerator<Strea
 }
 
 /**
+ * Clean up inactive and stalled jobs
+ */
+export async function cleanupInactiveJobs() {
+  try {
+    // Clean stalled jobs (jobs that were active but worker died)
+    const stalledJobs = await streamQueue.getJobs(['paused']);
+    for (const job of stalledJobs) {
+      console.log(`🧹 Cleaning stalled job: ${job.id}`);
+      await job.remove();
+    }
+
+    // Clean old completed jobs beyond retention policy
+    await streamQueue.clean(3600 * 1000, 100, 'completed'); // 1 hour, max 100
+    
+    // Clean old failed jobs beyond retention policy  
+    await streamQueue.clean(24 * 3600 * 1000, 50, 'failed'); // 24 hours, max 50
+
+    console.log(`🧹 Cleanup completed. Removed ${stalledJobs.length} stalled jobs`);
+    return { removedStalled: stalledJobs.length };
+  } catch (error) {
+    console.error('❌ Error during cleanup:', error);
+    throw error;
+  }
+}
+
+/**
  * Get queue metrics
  */
 export async function getQueueMetrics() {
-  const [waiting, active, completed, failed] = await Promise.all([
+  const [waiting, active, completed, failed, paused] = await Promise.all([
     streamQueue.getWaiting(),
-    streamQueue.getActive(),
+    streamQueue.getActive(), 
     streamQueue.getCompleted(),
-    streamQueue.getFailed()
+    streamQueue.getFailed(),
+    streamQueue.getJobs(['paused'])
   ]);
 
   return {
@@ -292,7 +344,27 @@ export async function getQueueMetrics() {
     active: active.length,
     completed: completed.length,
     failed: failed.length,
+    paused: paused.length,
     activeStreams: await getActiveStreams()
+  };
+}
+
+/**
+ * Start periodic cleanup of inactive jobs (call this once during app startup)
+ */
+export function startPeriodicCleanup(intervalMs: number = 30 * 60 * 1000) { // Default: 30 minutes
+  const cleanupInterval = setInterval(async () => {
+    try {
+      await cleanupInactiveJobs();
+    } catch (error) {
+      console.error('❌ Periodic cleanup failed:', error);
+    }
+  }, intervalMs);
+
+  // Return cleanup function to stop the interval
+  return () => {
+    clearInterval(cleanupInterval);
+    console.log('🛑 Stopped periodic cleanup');
   };
 }
 
