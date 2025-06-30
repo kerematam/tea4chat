@@ -210,26 +210,6 @@ export async function stopStream(streamId: string): Promise<boolean> {
 }
 
 /**
- * Get stream progress by direct job lookup
- */
-export async function getStreamProgress(streamId: string): Promise<StreamChunk[] | null> {
-  try {
-    // Direct lookup using streamId as jobId
-    const job = await Job.fromId(streamQueue, streamId);
-
-    if (job) {
-      const progress = job.progress as StreamChunk[];
-      return progress || null;
-    }
-
-    return null;
-  } catch (error) {
-    console.error(`❌ Error getting progress for ${streamId}:`, error);
-    return null;
-  }
-}
-
-/**
  * Get active streams by querying BullMQ
  */
 export async function getActiveStreams(): Promise<{ streamId: string; jobId: string }[]> {
@@ -252,32 +232,27 @@ export async function getActiveStreams(): Promise<{ streamId: string; jobId: str
 export async function* subscribeToStream(streamId: string): AsyncGenerator<StreamChunk, void, unknown> {
   console.log(`🎧 Subscribing to stream: ${streamId}`);
 
-  // Get historical chunks first
-  const historicalChunks = await getStreamProgress(streamId) || [];
-
-  for (const chunk of historicalChunks) {
-    console.log(`📺 Historical chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
-    yield chunk;
-  }
-
   let listener: (data: { jobId: string; data: unknown }) => void;
+  let lastSeenChunkNumber = -1;
 
   // Listen for new chunks via QueueEvents
   const chunkStream = new ReadableStream<StreamChunk>({
     start: (controller) => {
       listener = ({ jobId, data }) => {
         if (jobId !== streamId) return;
+
         const chunks = Array.isArray(data) ? data as StreamChunk[] : [];
-        const latestChunk = chunks[chunks.length - 1];
+        chunks.forEach(chunk => {
+          if (chunk.chunkNumber > lastSeenChunkNumber) {
+            console.log(`📨 Chunk ${chunk.chunkNumber} for ${streamId}: ${chunk.type}`);
+            controller.enqueue(chunk);
+            lastSeenChunkNumber = chunk.chunkNumber;
 
-        if (latestChunk) {
-          console.log(`📨 Live chunk ${latestChunk.chunkNumber} for ${streamId}: ${latestChunk.type}`);
-          controller.enqueue(latestChunk);
-
-          if (latestChunk.type === 'complete' || latestChunk.type === 'error') {
-            controller.close();
+            if (chunk.type === 'complete' || chunk.type === 'error') {
+              controller.close();
+            }
           }
-        }
+        });
       };
 
       queueEvents.on('progress', listener);
