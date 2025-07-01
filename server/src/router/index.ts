@@ -7,6 +7,7 @@ import { settingsRouter } from "./settingsRouter";
 import { streamRouter } from "./streamRouter";
 // import { streamRouterBullMQ } from "./streamRouter.bullmq";
 import { streamRouterEventSourced } from "./streamRouter.event-sourced";
+import { messageStreamRouter } from "./streamRouter.message";
 import { nativeStreamRouter } from "./streamRouter.native";
 // import { simpleStreamRouter } from "./streamRouter.simple";
 import { trackerRouter } from "./trackerRouter";
@@ -22,6 +23,7 @@ export const appRouter = router({
   // streamBullMQ: streamRouterBullMQ,
   // simple: simpleStreamRouter,
   native: nativeStreamRouter,
+  messageStream: messageStreamRouter,
   // hello: withOwnerProcedure
   //   .input(z.object({ name: z.string().optional() }))
   //   .query(async ({ input, ctx }) => {

@@ -11,6 +11,7 @@ import CommonLayout from "./layouts/Common";
 import { StreamTest } from "./pages/StreamTest/StreamTest";
 import { StreamTestBullMQ } from "./pages/StreamTest/StreamTestBullMQ";
 import { StreamTestEventSourced } from "./pages/StreamTest/StreamTestEventSourced";
+import StreamTestMessage from "./pages/StreamTest/StreamTestMessage";
 import StreamTestNative from "./pages/StreamTest/StreamTestNative";
 import StreamTestSimple from "./pages/StreamTest/StreamTestSimple";
 import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
@@ -83,6 +84,10 @@ function App() {
                   <Route
                     path="stream-test-native"
                     element={<StreamTestNative />}
+                  />
+                  <Route
+                    path="stream-test-message"
+                    element={<StreamTestMessage />}
                   />
 
                   <Route path="403" element={<Forbidden />} />
