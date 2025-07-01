@@ -3,16 +3,17 @@
  * 
  * Uses MessageType structure from messageRouter.ts with BullMQ streaming.
  * Designed for streaming message chunks similar to sendWithStream pattern.
+ * Uses chatId as both streamId and jobId for simplicity.
  */
 
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import {
-    generateMessageChunkStreamId,
-    getActiveMessageChunkStreams,
-    getMessageChunkStreamMetrics,
-    startMessageChunkStream,
-    stopMessageChunkStream,
-    subscribeToMessageChunkStream
+  getActiveMessageChunkStreams,
+  getMessageChunkStreamMetrics,
+  startMessageChunkStream,
+  stopMessageChunkStream,
+  subscribeToMessageChunkStream
 } from '../lib/bullmq-message-utils';
 import { withOwnerProcedure } from '../procedures/base';
 
@@ -28,12 +29,11 @@ export const messageStreamRouter = {
       config: z.record(z.any()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const streamId = generateMessageChunkStreamId();
-      const chatId = input.chatId || `chat_${Date.now()}`;
+      // Use provided chatId or generate a new one
+      const chatId = input.chatId || `chat_${randomBytes(8).toString('hex')}_${Date.now()}`;
       
-      const result = await startMessageChunkStream({
-        streamId,
-        chatId,
+      const resultChatId = await startMessageChunkStream({
+        chatId, // chatId serves as both streamId and jobId
         userContent: input.userContent,
         type: input.type,
         intervalMs: input.intervalMs,
@@ -43,8 +43,10 @@ export const messageStreamRouter = {
       });
 
       return {
-        ...result,
-        message: `Started ${input.type} message chunk stream with ${input.maxChunks} chunks`,
+        chatId: resultChatId,
+        streamId: resultChatId,
+        jobId: resultChatId,
+        message: `Started ${input.type} message chunk stream for chat ${chatId} with ${input.maxChunks} chunks`,
         settings: {
           type: input.type,
           intervalMs: input.intervalMs,
@@ -54,16 +56,17 @@ export const messageStreamRouter = {
       };
     }),
 
-  // Stop a message chunk stream
+  // Stop a message chunk stream by chatId
   stopMessageChunkStream: withOwnerProcedure
     .input(z.object({
-      streamId: z.string(),
+      chatId: z.string(),
     }))
     .mutation(async ({ input }) => {
-      const stopped = await stopMessageChunkStream(input.streamId);
+      const stopped = await stopMessageChunkStream(input.chatId);
       
       return {
-        streamId: input.streamId,
+        chatId: input.chatId,
+        streamId: input.chatId, // streamId = chatId
         stopped,
         message: stopped ? 'Message chunk stream stopped successfully' : 'Message chunk stream not found or already completed'
       };
@@ -87,15 +90,15 @@ export const messageStreamRouter = {
       return await getMessageChunkStreamMetrics();
     }),
 
-  // Listen to message chunk stream - returns async generator like sendWithStream
+  // Listen to message chunk stream by chatId - returns async generator like sendWithStream
   listenToMessageChunkStream: withOwnerProcedure
     .input(z.object({
-      streamId: z.string(),
+      chatId: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      console.log(`🎧 User ${ctx.owner?.id} listening to message chunk stream: ${input.streamId}`);
+      console.log(`🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId}`);
       
       // Return the async generator from subscribeToMessageChunkStream
-      return subscribeToMessageChunkStream(input.streamId);
+      return subscribeToMessageChunkStream(input.chatId);
     }),
 }; 

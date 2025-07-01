@@ -15,8 +15,7 @@ import {
   Send,
   SmartToy,
   Stop,
-  Timer,
-  Work,
+  Timer
 } from "@mui/icons-material";
 import {
   Alert,
@@ -89,8 +88,7 @@ interface MessageChunkStreamMetrics {
 }
 
 const StreamTestMessage: React.FC = () => {
-  // Stream state
-  const [streamId, setStreamId] = useState<string>("");
+  // Stream state - streamId = chatId for simplicity
   const [chatId, setChatId] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [messages, setMessages] = useState<MessageType[]>([]);
@@ -118,7 +116,6 @@ const StreamTestMessage: React.FC = () => {
   const startStreamMutation = trpc.messageStream.startMessageChunkStream.useMutation({
     onSuccess: (data) => {
       console.log("✅ Message chunk stream started:", data);
-      setStreamId(data.streamId);
       setChatId(data.chatId);
       setIsStreaming(true);
       setError(null);
@@ -128,8 +125,8 @@ const StreamTestMessage: React.FC = () => {
       setIsListening(true);
       setCurrentAiMessageId(null);
 
-      // Start listening to the stream
-      listenToStreamMutation.mutate({ streamId: data.streamId });
+      // Start listening to the stream using chatId
+      listenToStreamMutation.mutate({ chatId: data.chatId });
     },
     onError: (error) => {
       console.error("❌ Failed to start message chunk stream:", error);
@@ -165,13 +162,13 @@ const StreamTestMessage: React.FC = () => {
           switch (event.type) {
             case "userMessage":
               if (event.message) {
-                setMessages((prev) => [...prev, convertToMessageType(event.message)]);
+                setMessages((prev) => [...prev, convertToMessageType(event.message as ServerMessageType)]);
               }
               break;
 
             case "aiMessageStart":
               if (event.message) {
-                const convertedMessage = convertToMessageType(event.message);
+                const convertedMessage = convertToMessageType(event.message as ServerMessageType);
                 setMessages((prev) => [...prev, convertedMessage]);
                 setCurrentAiMessageId(convertedMessage.id);
               }
@@ -193,7 +190,7 @@ const StreamTestMessage: React.FC = () => {
 
             case "aiMessageComplete":
               if (event.message) {
-                const convertedMessage = convertToMessageType(event.message);
+                const convertedMessage = convertToMessageType(event.message as ServerMessageType);
                 // Replace the AI message with the complete version
                 setMessages((prev) => 
                   prev.map((msg) => 
@@ -230,13 +227,6 @@ const StreamTestMessage: React.FC = () => {
     undefined,
     {
       // refetchInterval: 5000,
-    }
-  );
-
-  const getActiveStreamsQuery = trpc.messageStream.getActiveMessageChunkStreams.useQuery(
-    undefined,
-    {
-      // refetchInterval: 3000,
     }
   );
 
@@ -279,14 +269,14 @@ const StreamTestMessage: React.FC = () => {
   };
 
   const handleStopStream = () => {
-    if (streamId) {
-      stopStreamMutation.mutate({ streamId });
+    if (chatId) {
+      stopStreamMutation.mutate({ chatId });
     }
   };
 
   const handleListenToStream = () => {
-    if (streamId) {
-      console.log("🎧 Starting to listen to existing message chunk stream:", streamId);
+    if (chatId) {
+      console.log("🎧 Starting to listen to existing message chunk stream for chat:", chatId);
       setMessages([]);
       setStreamEvents([]);
       setError(null);
@@ -294,26 +284,25 @@ const StreamTestMessage: React.FC = () => {
       setIsStreaming(false);
       setCurrentAiMessageId(null);
 
-      listenToStreamMutation.mutate({ streamId });
+      listenToStreamMutation.mutate({ chatId });
     }
   };
 
   const handleStopListening = () => {
-    console.log("🔇 Stopped listening to message chunk stream:", streamId);
+    console.log("🔇 Stopped listening to message chunk stream for chat:", chatId);
     setIsListening(false);
   };
 
   const handleTestReplay = () => {
-    if (streamId) {
-      console.log("🔄 Testing message chunk stream replay functionality...");
+    if (chatId) {
+      console.log("🔄 Testing message chunk stream replay functionality for chat:", chatId);
       setMessages([]);
       setStreamEvents([]);
       setError(null);
       setIsListening(true);
-      setStreamingContent("");
       setCurrentAiMessageId(null);
 
-      listenToStreamMutation.mutate({ streamId });
+      listenToStreamMutation.mutate({ chatId });
     }
   };
 
@@ -321,7 +310,6 @@ const StreamTestMessage: React.FC = () => {
     setMessages([]);
     setStreamEvents([]);
     setError(null);
-    setStreamingContent("");
     setCurrentAiMessageId(null);
   };
 
@@ -376,7 +364,9 @@ const StreamTestMessage: React.FC = () => {
               <strong>Chunk-based Streaming:</strong> Similar to sendWithStream pattern.
               Yields userMessage → aiMessageStart → aiMessageChunk(s) → aiMessageComplete
               <br />
-              <strong>Cross-tab streaming:</strong> Copy a stream ID to listen 
+              <strong>Simplified Design:</strong> chatId serves as both streamId and jobId for simplicity.
+              <br />
+              <strong>Cross-tab streaming:</strong> Copy a chat ID to listen 
               to the same message stream from multiple tabs!
             </Alert>
 
@@ -403,21 +393,7 @@ const StreamTestMessage: React.FC = () => {
                 <Grid item xs={12} md={3}>
                   <TextField
                     fullWidth
-                    label="Stream ID"
-                    value={streamId}
-                    onChange={(e) => setStreamId(e.target.value)}
-                    placeholder="Auto-generated on start"
-                    variant="outlined"
-                    size="small"
-                    InputProps={{
-                      sx: { fontFamily: "monospace", fontSize: "0.875rem" },
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={3}>
-                  <TextField
-                    fullWidth
-                    label="Chat ID"
+                    label="Chat ID (also Stream ID)"
                     value={chatId}
                     onChange={(e) => setChatId(e.target.value)}
                     placeholder="Auto-generated on start"
@@ -504,7 +480,7 @@ const StreamTestMessage: React.FC = () => {
                   color="error"
                   startIcon={<Stop />}
                   onClick={handleStopStream}
-                  disabled={!streamId || !isStreaming}
+                  disabled={!chatId || !isStreaming}
                 >
                   {stopStreamMutation.isPending ? "Stopping..." : "Stop Stream"}
                 </Button>
@@ -514,7 +490,7 @@ const StreamTestMessage: React.FC = () => {
                   color="primary"
                   startIcon={<CloudQueue />}
                   onClick={handleListenToStream}
-                  disabled={!streamId || isListening || isStreaming}
+                  disabled={!chatId || isListening || isStreaming}
                 >
                   Listen to Stream
                 </Button>
@@ -534,7 +510,7 @@ const StreamTestMessage: React.FC = () => {
                   color="info"
                   startIcon={<Analytics />}
                   onClick={handleTestReplay}
-                  disabled={!streamId}
+                  disabled={!chatId}
                 >
                   Test Replay
                 </Button>
@@ -583,18 +559,10 @@ const StreamTestMessage: React.FC = () => {
                     }
                     variant="outlined"
                   />
-                  {streamId && (
-                    <Chip
-                      icon={<Work />}
-                      label={`Stream: ${streamId.slice(-12)}`}
-                      variant="outlined"
-                      sx={{ fontFamily: "monospace" }}
-                    />
-                  )}
                   {chatId && (
                     <Chip
                       icon={<Chat />}
-                      label={`Chat: ${chatId.slice(-12)}`}
+                      label={`Chat/Stream: ${chatId.slice(-12)}`}
                       variant="outlined"
                       sx={{ fontFamily: "monospace" }}
                     />

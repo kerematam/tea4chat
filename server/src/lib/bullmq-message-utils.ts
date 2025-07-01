@@ -40,8 +40,7 @@ export type StreamMessage = {
 
 // Job data for message chunk streaming
 export interface MessageChunkStreamJobData {
-  streamId: string;
-  chatId: string;
+  chatId: string; // chatId serves as both streamId and jobId
   userContent: string;
   type: 'demo' | 'ai' | 'conversation';
   intervalMs: number;
@@ -52,8 +51,8 @@ export interface MessageChunkStreamJobData {
   stoppedAt?: string;
 }
 
-// Queue configuration
-const QUEUE_CONFIG = {
+// Queue instances
+export const messageChunkStreamQueue = new Queue('message-chunk-stream-processing', {
   connection: createRedisConnection(),
   defaultJobOptions: {
     removeOnComplete: true,
@@ -64,10 +63,7 @@ const QUEUE_CONFIG = {
       delay: 2000,
     },
   },
-};
-
-// Queue instances
-export const messageChunkStreamQueue = new Queue('message-chunk-stream-processing', QUEUE_CONFIG);
+});
 export const messageChunkQueueEvents = new QueueEvents('message-chunk-stream-processing', { connection: createRedisConnection() });
 
 // Content generator utility for different types
@@ -75,13 +71,13 @@ const generateContent = (type: 'demo' | 'ai' | 'conversation', userContent: stri
   switch (type) {
     case 'demo':
       return `Demo response to "${userContent}": This is a simulated response with multiple chunks. Each chunk represents a portion of the AI response being streamed in real-time. The system demonstrates how content can be delivered progressively to provide better user experience during AI generation. This approach allows users to see partial responses while the full response is still being processed, making the interaction feel more responsive and engaging.`;
-      
+
     case 'ai':
       return `AI response to "${userContent}": Artificial Intelligence systems work by processing input data through complex neural networks that have been trained on vast amounts of text and information. When you ask a question, the AI analyzes the context, draws from its training knowledge, and generates a response by predicting the most appropriate words and phrases to use. This process involves multiple layers of computation and pattern recognition that happen very quickly, allowing for near real-time responses to complex queries and conversations.`;
-      
+
     case 'conversation':
       return `Thank you for your message: "${userContent}". I understand your request and I'm here to help you with whatever you need. Whether you have questions about specific topics, need assistance with tasks, or just want to have a conversation, I'm ready to provide helpful and informative responses. Feel free to ask me anything you'd like to know more about, and I'll do my best to provide clear and useful information.`;
-      
+
     default:
       return `Response to "${userContent}": This is a default response that will be streamed in chunks.`;
   }
@@ -90,24 +86,24 @@ const generateContent = (type: 'demo' | 'ai' | 'conversation', userContent: stri
 // Split content into chunks for streaming
 const splitIntoChunks = (content: string, numChunks: number): string[] => {
   if (numChunks <= 1) return [content];
-  
+
   const words = content.split(' ');
   const chunkSize = Math.ceil(words.length / numChunks);
   const chunks: string[] = [];
-  
+
   for (let i = 0; i < words.length; i += chunkSize) {
     const chunk = words.slice(i, i + chunkSize).join(' ');
     chunks.push(chunk + (i + chunkSize < words.length ? ' ' : ''));
   }
-  
+
   return chunks;
 };
 
 // Message chunk stream job processor
 const processMessageChunkStreamJob = async (job: Job<MessageChunkStreamJobData>) => {
-  const { streamId, chatId, userContent, type, intervalMs, maxChunks = 20 } = job.data;
+  const { chatId, userContent, type, intervalMs, maxChunks = 20 } = job.data;
 
-  console.log(`🚀 Starting message chunk stream job: ${streamId} for chat: ${chatId}`);
+  console.log(`🚀 Starting message chunk stream job for chat: ${chatId}`);
 
   try {
     const progress: StreamMessage[] = [];
@@ -132,9 +128,9 @@ const processMessageChunkStreamJob = async (job: Job<MessageChunkStreamJobData>)
     await job.updateProgress(progress);
 
     // Check for stop signal
-    let currentJob = await Job.fromId(messageChunkStreamQueue, streamId);
+    let currentJob = await Job.fromId(messageChunkStreamQueue, chatId);
     if (await job.isCompleted() || await job.isFailed() || currentJob?.data.shouldStop) {
-      console.log(`🛑 Stop signal received for message chunk stream: ${streamId}`);
+      console.log(`🛑 Stop signal received for chat: ${chatId}`);
       return;
     }
 
@@ -166,9 +162,9 @@ const processMessageChunkStreamJob = async (job: Job<MessageChunkStreamJobData>)
     let accumulatedContent = "";
     for (let i = 0; i < chunks.length; i++) {
       // Check for stop signal
-      currentJob = await Job.fromId(messageChunkStreamQueue, streamId);
+      currentJob = await Job.fromId(messageChunkStreamQueue, chatId);
       if (await job.isCompleted() || await job.isFailed() || currentJob?.data.shouldStop) {
-        console.log(`🛑 Stop signal received during chunk ${i + 1} for stream: ${streamId}`);
+        console.log(`🛑 Stop signal received during chunk ${i + 1} for chat: ${chatId}`);
         break;
       }
 
@@ -186,7 +182,7 @@ const processMessageChunkStreamJob = async (job: Job<MessageChunkStreamJobData>)
       progress.push(chunkEvent);
       await job.updateProgress(progress);
 
-      console.log(`📝 Message chunk stream ${streamId}: Chunk ${i + 1}/${chunks.length}`);
+      console.log(`📝 Message chunk stream ${chatId}: Chunk ${i + 1}/${chunks.length}`);
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
 
@@ -206,17 +202,16 @@ const processMessageChunkStreamJob = async (job: Job<MessageChunkStreamJobData>)
     progress.push(aiMessageCompleteEvent);
     await job.updateProgress(progress);
 
-    console.log(`✅ Message chunk stream ${streamId} completed`);
+    console.log(`✅ Message chunk stream ${chatId} completed`);
 
     return {
-      streamId,
       chatId,
       totalChunks: chunks.length,
       totalMessages: 2, // user + ai message
       status: 'completed'
     };
   } catch (error) {
-    console.error(`❌ Error in message chunk stream ${streamId}:`, error);
+    console.error(`❌ Error in message chunk stream ${chatId}:`, error);
     throw error;
   }
 };
@@ -239,48 +234,41 @@ messageChunkStreamWorker.on('failed', (job, err) => {
 // Utility functions
 
 /**
- * Generate a unique stream ID
+ * Start a new message chunk stream using chatId as jobId
  */
-export function generateMessageChunkStreamId(): string {
-  return `msg-chunk-stream-${randomBytes(8).toString('hex')}-${Date.now()}`;
-}
-
-/**
- * Start a new message chunk stream
- */
-export async function startMessageChunkStream(data: MessageChunkStreamJobData): Promise<{ jobId: string; streamId: string; chatId: string }> {
+export async function startMessageChunkStream(data: MessageChunkStreamJobData): Promise<string> {
   const job = await messageChunkStreamQueue.add('process-message-chunk-stream', data, {
-    jobId: data.streamId,
+    jobId: data.chatId, // Use chatId as jobId
     removeOnComplete: true,
     removeOnFail: true,
   });
 
-  console.log(`🎬 Started message chunk stream: ${data.streamId} for chat: ${data.chatId} (job: ${job.id || 'unknown'})`);
-  return { jobId: job.id || 'unknown', streamId: data.streamId, chatId: data.chatId };
+  console.log(`🎬 Started message chunk stream for chat: ${data.chatId} (job: ${job.id || 'unknown'})`);
+  return data.chatId;
 }
 
 /**
- * Stop a message chunk stream
+ * Stop a message chunk stream by chatId
  */
-export async function stopMessageChunkStream(streamId: string): Promise<boolean> {
+export async function stopMessageChunkStream(chatId: string): Promise<boolean> {
   try {
-    const job = await Job.fromId(messageChunkStreamQueue, streamId);
-    
+    const job = await Job.fromId(messageChunkStreamQueue, chatId);
+
     if (job) {
       await job.updateData({
         ...job.data,
         shouldStop: true,
         stoppedAt: new Date().toISOString()
       });
-      
-      console.log(`🛑 Stop signal sent for message chunk stream: ${streamId}`);
+
+      console.log(`🛑 Stop signal sent for chat: ${chatId}`);
       return true;
     }
 
-    console.log(`⚠️ Message chunk stream ${streamId} not found`);
+    console.log(`⚠️ Message chunk stream for chat ${chatId} not found`);
     return false;
   } catch (error) {
-    console.error(`❌ Error stopping message chunk stream ${streamId}:`, error);
+    console.error(`❌ Error stopping message chunk stream ${chatId}:`, error);
     return false;
   }
 }
@@ -292,7 +280,7 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
   try {
     const activeJobs = await messageChunkStreamQueue.getActive();
     return activeJobs.map(job => ({
-      streamId: job.data.streamId,
+      streamId: job.data.chatId, // streamId = chatId
       chatId: job.data.chatId,
       jobId: job.id || 'unknown'
     }));
@@ -303,10 +291,10 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
 }
 
 /**
- * Subscribe to message chunk stream events
+ * Subscribe to message chunk stream events by chatId
  */
-export async function* subscribeToMessageChunkStream(streamId: string): AsyncGenerator<StreamMessage, void, unknown> {
-  console.log(`🎧 Subscribing to message chunk stream: ${streamId}`);
+export async function* subscribeToMessageChunkStream(chatId: string): AsyncGenerator<StreamMessage, void, unknown> {
+  console.log(`🎧 Subscribing to message chunk stream for chat: ${chatId}`);
 
   let listener: (data: { jobId: string; data: unknown }) => void;
   let lastSeenEventIndex = -1;
@@ -314,15 +302,15 @@ export async function* subscribeToMessageChunkStream(streamId: string): AsyncGen
   const eventStream = new ReadableStream<StreamMessage>({
     start: (controller) => {
       listener = ({ jobId, data }) => {
-        if (jobId !== streamId) return;
+        if (jobId !== chatId) return; // jobId = chatId
 
         const events = Array.isArray(data) ? data as StreamMessage[] : [];
         events.forEach((event, index) => {
           if (index > lastSeenEventIndex) {
-            console.log(`📨 Event ${index} for ${streamId}: ${event.type}`);
+            console.log(`📨 Event ${index} for chat ${chatId}: ${event.type}`);
             controller.enqueue(event);
             lastSeenEventIndex = index;
-
+            console.log(event);
             if (event.type === 'aiMessageComplete') {
               controller.close();
             }
@@ -336,17 +324,17 @@ export async function* subscribeToMessageChunkStream(streamId: string): AsyncGen
 
   try {
     for await (const event of eventStream) {
-      console.log(`📤 Yielding event for ${streamId}: ${event.type}`);
+      console.log(`📤 Yielding event for chat ${chatId}: ${event.type}`);
       yield event;
 
       if (event.type === 'aiMessageComplete') {
-        console.log(`🏁 Terminal event received for ${streamId}: ${event.type}`);
+        console.log(`🏁 Terminal event received for chat ${chatId}: ${event.type}`);
         break;
       }
     }
   } finally {
     messageChunkQueueEvents.off('progress', listener!);
-    console.log(`📡 Message chunk stream subscription closed for ${streamId}`);
+    console.log(`📡 Message chunk stream subscription closed for chat ${chatId}`);
   }
 }
 
@@ -356,7 +344,7 @@ export async function* subscribeToMessageChunkStream(streamId: string): AsyncGen
 export async function getMessageChunkStreamMetrics() {
   const [waiting, active, completed, failed, paused] = await Promise.all([
     messageChunkStreamQueue.getWaiting(),
-    messageChunkStreamQueue.getActive(), 
+    messageChunkStreamQueue.getActive(),
     messageChunkStreamQueue.getCompleted(),
     messageChunkStreamQueue.getFailed(),
     messageChunkStreamQueue.getJobs(['paused'])
