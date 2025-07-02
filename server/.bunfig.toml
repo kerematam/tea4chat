@@ -1,0 +1,19 @@
+# Bun configuration for better debugging and stack traces
+
+[debug]
+# Enable source maps for better stack traces
+sourcemap = true
+
+[install]
+# Enable verbose logging for package installs
+verbose = true
+
+[run]
+# Default stack trace limit for all runs
+stackTraceLimit = 100
+
+# Enable hot reload for development
+hot = true
+
+# Prefer exact matches for faster resolution
+preferExact = true 

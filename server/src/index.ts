@@ -60,6 +60,28 @@ export default {
   maxRequestBodySize: 1024 * 1024 * 10, // 10MB max request body
 };
 
+// Enhanced error handling for development
+if (process.env.NODE_ENV === 'development') {
+  // Increase stack trace limit
+  Error.stackTraceLimit = 100;
+  
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Log the full stack trace
+    if (reason instanceof Error) {
+      console.error('Full stack trace:', reason.stack);
+    }
+  });
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    console.error('Full stack trace:', error.stack);
+    // Don't exit in development to keep debugging
+  });
+}
+
 // Handle graceful shutdown
 process.on("SIGTERM", () => {
   console.log("Server closed");

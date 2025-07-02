@@ -3,8 +3,10 @@
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development bun run --watch src/index.ts",
-    "dev:test": "NODE_ENV=test bun run --watch src/index.ts",
+    "dev": "NODE_ENV=development bun run --watch --inspect --stack-trace-limit=100 src/index.ts",
+    "dev:test": "NODE_ENV=test bun run --watch --inspect --stack-trace-limit=100 src/index.ts",
+    "dev:debug": "NODE_ENV=development bun run --watch --inspect-brk --stack-trace-limit=100 src/index.ts",
+    "dev:debug-full": "NODE_ENV=development NODE_OPTIONS='--stack-trace-limit=100 --trace-warnings --trace-uncaught' FORCE_COLOR=1 bun run --watch --inspect --stack-trace-limit=100 src/index.ts",
     "dev:cluster": "NODE_ENV=development bun run src/cluster.ts",
     "start": "NODE_ENV=production bun run src/cluster.ts",
     "build": "bun build src/index.ts --compile --minify --outfile dist/server && bun build src/cluster.ts --compile --minify --outfile dist/cluster",
