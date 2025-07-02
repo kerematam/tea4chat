@@ -51,17 +51,22 @@ export interface MessageChunkStreamJobData {
   stoppedAt?: string;
 }
 
+// Job data for each individual chunk
+interface ChunkJobData {
+  chatId: string;
+  seq: number;
+  event: StreamMessage;
+}
+
+const messageChunkStreamQueueName = 'message-chunk-stream-processing';
+
 // Queue instances
-export const messageChunkStreamQueue = new Queue('message-chunk-stream-processing', {
+export const messageChunkStreamQueue = new Queue<ChunkJobData>(messageChunkStreamQueueName, {
   connection: createRedisConnection(),
   defaultJobOptions: {
-    removeOnComplete: true,
+    removeOnComplete: false,
     removeOnFail: true,
-    attempts: 3,
-    backoff: {
-      type: 'exponential' as const,
-      delay: 2000,
-    },
+    attempts: 1,
   },
 });
 export const messageChunkQueueEvents = new QueueEvents('message-chunk-stream-processing', { connection: createRedisConnection() });
@@ -99,136 +104,25 @@ const splitIntoChunks = (content: string, numChunks: number): string[] => {
   return chunks;
 };
 
-// Message chunk stream job processor
-const processMessageChunkStreamJob = async (job: Job<MessageChunkStreamJobData>) => {
-  const { chatId, userContent, type, intervalMs, maxChunks = 20 } = job.data;
-
-  console.log(`🚀 Starting message chunk stream job for chat: ${chatId}`);
-
-  try {
-    const progress: StreamMessage[] = [];
-
-    // 1. First yield the user message
-    const userMessage: MessageType = {
-      id: `user_${randomBytes(8).toString('hex')}`,
-      createdAt: new Date(),
-      chatId,
-      content: userContent,
-      from: "user",
-      text: userContent,
-    };
-
-    const userMessageEvent: StreamMessage = {
-      type: "userMessage",
-      message: userMessage,
-      chatId,
-    };
-
-    progress.push(userMessageEvent);
-    await job.updateProgress(progress);
-
-    // Check for stop signal
-    let currentJob = await Job.fromId(messageChunkStreamQueue, chatId);
-    if (await job.isCompleted() || await job.isFailed() || currentJob?.data.shouldStop) {
-      console.log(`🛑 Stop signal received for chat: ${chatId}`);
-      return;
-    }
-
-    // 2. Create and yield the AI message start
-    const aiMessage: MessageType = {
-      id: `ai_${randomBytes(8).toString('hex')}`,
-      createdAt: new Date(),
-      chatId,
-      content: "",
-      from: "assistant",
-      text: "",
-    };
-
-    const aiMessageStartEvent: StreamMessage = {
-      type: "aiMessageStart",
-      message: aiMessage,
-      chatId,
-    };
-
-    progress.push(aiMessageStartEvent);
-    await job.updateProgress(progress);
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
-
-    // 3. Generate the full AI response content
-    const fullContent = generateContent(type, userContent);
-    const chunks = splitIntoChunks(fullContent, maxChunks);
-
-    // 4. Stream the chunks
-    let accumulatedContent = "";
-    for (let i = 0; i < chunks.length; i++) {
-      // Check for stop signal
-      currentJob = await Job.fromId(messageChunkStreamQueue, chatId);
-      if (await job.isCompleted() || await job.isFailed() || currentJob?.data.shouldStop) {
-        console.log(`🛑 Stop signal received during chunk ${i + 1} for chat: ${chatId}`);
-        break;
-      }
-
-      const chunk = chunks[i];
-      accumulatedContent += chunk;
-
-      const chunkEvent: StreamMessage = {
-        type: "aiMessageChunk",
-        messageId: aiMessage.id,
-        chunk: chunk,
-        chunkId: `chunk-${i + 1}`,
-        chatId,
-      };
-
-      progress.push(chunkEvent);
-      await job.updateProgress(progress);
-
-      console.log(`📝 Message chunk stream ${chatId}: Chunk ${i + 1}/${chunks.length}`);
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-
-    // 5. Complete the AI message
-    const completedAiMessage: MessageType = {
-      ...aiMessage,
-      content: accumulatedContent,
-      text: accumulatedContent,
-    };
-
-    const aiMessageCompleteEvent: StreamMessage = {
-      type: "aiMessageComplete",
-      message: completedAiMessage,
-      chatId,
-    };
-
-    progress.push(aiMessageCompleteEvent);
-    await job.updateProgress(progress);
-
-    console.log(`✅ Message chunk stream ${chatId} completed`);
-
-    return {
-      chatId,
-      totalChunks: chunks.length,
-      totalMessages: 2, // user + ai message
-      status: 'completed'
-    };
-  } catch (error) {
-    console.error(`❌ Error in message chunk stream ${chatId}:`, error);
-    throw error;
+// Lightweight worker: simply marks each chunk job as completed and makes its data available via QueueEvents
+export const messageChunkStreamWorker = new Worker<ChunkJobData>(
+  messageChunkStreamQueueName,
+  async (job: Job<ChunkJobData>) => {
+    // Return the job data so listeners can access it via QueueEvents 'completed' event
+    return job.data;
+  },
+  {
+    connection: createRedisConnection(),
+    concurrency: 50,
   }
-};
+);
 
-// Worker instance
-export const messageChunkStreamWorker = new Worker('message-chunk-stream-processing', processMessageChunkStreamJob, {
-  connection: createRedisConnection(),
-  concurrency: 3,
-});
-
-// Worker event handlers
 messageChunkStreamWorker.on('completed', (job) => {
-  console.log(`✅ Message chunk stream job ${job.id || 'unknown'} completed`);
+  console.log(`✅ Chunk job completed: ${job.id}`);
 });
 
 messageChunkStreamWorker.on('failed', (job, err) => {
-  console.error(`❌ Message chunk stream job ${job?.id || 'unknown'} failed:`, err.message);
+  console.error(`❌ Chunk job failed: ${job?.id}.`, err.message);
 });
 
 // Utility functions
@@ -237,14 +131,77 @@ messageChunkStreamWorker.on('failed', (job, err) => {
  * Start a new message chunk stream using chatId as jobId
  */
 export async function startMessageChunkStream(data: MessageChunkStreamJobData): Promise<string> {
-  const job = await messageChunkStreamQueue.add('process-message-chunk-stream', data, {
-    jobId: data.chatId, // Use chatId as jobId
-    removeOnComplete: true,
-    removeOnFail: true,
-  });
+  const { chatId, userContent, type, intervalMs, maxChunks = 20 } = data;
 
-  console.log(`🎬 Started message chunk stream for chat: ${data.chatId} (job: ${job.id || 'unknown'})`);
-  return data.chatId;
+  // Kick off producer asynchronously (fire-and-forget)
+  (async () => {
+    let seq = 0;
+
+    const enqueue = async (event: StreamMessage) => {
+      const jobId = `${chatId}:${seq}`;
+      try {
+        await messageChunkStreamQueue.add('chunk', { chatId, seq, event } as ChunkJobData, {
+          jobId,
+          removeOnComplete: false,
+          attempts: 1,
+        });
+        seq += 1;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message.includes('Job with the name')) {
+          seq += 1; // duplicate
+        } else {
+          console.error('❌ enqueue error', err);
+        }
+      }
+    };
+
+    // user message
+    const userMessage: MessageType = {
+      id: `user_${randomBytes(8).toString('hex')}`,
+      createdAt: new Date(),
+      chatId,
+      content: userContent,
+      from: 'user',
+      text: userContent,
+    };
+    await enqueue({ type: 'userMessage', message: userMessage, chatId });
+
+    // ai start
+    const aiMessage: MessageType = {
+      id: `ai_${randomBytes(8).toString('hex')}`,
+      createdAt: new Date(),
+      chatId,
+      content: '',
+      from: 'assistant',
+      text: '',
+    };
+    await enqueue({ type: 'aiMessageStart', message: aiMessage, chatId });
+
+    const fullContent = generateContent(type, userContent);
+    const chunks = splitIntoChunks(fullContent, maxChunks);
+
+    let accumulated = '';
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      accumulated += chunk;
+      await enqueue({
+        type: 'aiMessageChunk',
+        messageId: aiMessage.id,
+        chunk,
+        chunkId: `chunk-${i + 1}`,
+        chatId,
+      });
+      if (intervalMs > 0) await new Promise(res => setTimeout(res, intervalMs));
+    }
+
+    const completedMessage: MessageType = { ...aiMessage, content: accumulated, text: accumulated };
+    await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
+
+    console.log(`🎬 Enqueued ${seq} events for chat ${chatId}`);
+  })();
+
+  // immediately return chatId so caller isn't blocked
+  return chatId;
 }
 
 /**
@@ -252,21 +209,11 @@ export async function startMessageChunkStream(data: MessageChunkStreamJobData): 
  */
 export async function stopMessageChunkStream(chatId: string): Promise<boolean> {
   try {
-    const job = await Job.fromId(messageChunkStreamQueue, chatId);
-
-    if (job) {
-      await job.updateData({
-        ...job.data,
-        shouldStop: true,
-        stoppedAt: new Date().toISOString()
-      });
-
-      console.log(`🛑 Stop signal sent for chat: ${chatId}`);
-      return true;
-    }
-
-    console.log(`⚠️ Message chunk stream for chat ${chatId} not found`);
-    return false;
+    const redis = createRedisConnection();
+    await redis.set(`stop-stream:${chatId}`, '1', 'EX', 60 * 5); // auto-expire in 5 minutes
+    await redis.quit();
+    console.log(`🛑 Stop flag set for chat: ${chatId}`);
+    return true;
   } catch (error) {
     console.error(`❌ Error stopping message chunk stream ${chatId}:`, error);
     return false;
@@ -279,11 +226,18 @@ export async function stopMessageChunkStream(chatId: string): Promise<boolean> {
 export async function getActiveMessageChunkStreams(): Promise<{ streamId: string; chatId: string; jobId: string }[]> {
   try {
     const activeJobs = await messageChunkStreamQueue.getActive();
-    return activeJobs.map(job => ({
-      streamId: job.data.chatId, // streamId = chatId
-      chatId: job.data.chatId,
-      jobId: job.id || 'unknown'
-    }));
+    const seen = new Set<string>();
+    const result: { streamId: string; chatId: string; jobId: string }[] = [];
+
+    for (const job of activeJobs) {
+      const chatId = job.data.chatId;
+      if (!seen.has(chatId)) {
+        seen.add(chatId);
+        result.push({ streamId: chatId, chatId, jobId: job.id || 'unknown' });
+      }
+    }
+
+    return result;
   } catch (error) {
     console.error(`❌ Error getting active message chunk streams:`, error);
     return [];
@@ -296,44 +250,71 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
 export async function* subscribeToMessageChunkStream(chatId: string): AsyncGenerator<StreamMessage, void, unknown> {
   console.log(`🎧 Subscribing to message chunk stream for chat: ${chatId}`);
 
-  let listener: (data: { jobId: string; data: unknown }) => void;
-  let lastSeenEventIndex = -1;
+  const prefix = `${chatId}:`;
+  
+  // First replay missing history
+  const fetchCompletedChunks = async () => {
+    const allCompleted = await messageChunkStreamQueue.getJobs(['completed'], 0, -1, false);
+    return allCompleted
+      .filter(j => (j.id as string).startsWith(prefix))
+      .sort((a, b) => (a.data.seq - b.data.seq));
+  };
 
-  const eventStream = new ReadableStream<StreamMessage>({
-    start: (controller) => {
-      listener = ({ jobId, data }) => {
-        if (jobId !== chatId) return; // jobId = chatId
-
-        const events = Array.isArray(data) ? data as StreamMessage[] : [];
-        events.forEach((event, index) => {
-          if (index > lastSeenEventIndex) {
-            console.log(`📨 Event ${index} for chat ${chatId}: ${event.type}`);
-            controller.enqueue(event);
-            lastSeenEventIndex = index;
-            console.log(event);
-            if (event.type === 'aiMessageComplete') {
-              controller.close();
-            }
-          }
-        });
-      };
-
-      messageChunkQueueEvents.on('progress', listener);
+  const history = await fetchCompletedChunks();
+  for (const job of history) {
+    const completedData = job.returnvalue as ChunkJobData | undefined;
+    const event: StreamMessage = completedData?.event ?? job.data.event;
+    console.log(`📺 Historical event for ${chatId}: ${event.type}`);
+    yield event;
+    
+    if (event.type === 'aiMessageComplete') {
+      console.log(`🏁 Stream already completed for ${chatId}`);
+      return; // stream already finished
     }
-  });
+  }
+
+  // Real-time subscription using simple promise-based approach
+  let resolveNext: ((value: StreamMessage) => void) | null = null;
+  let streamCompleted = false;
+
+  const listener = ({ jobId, returnvalue }: { jobId: string; returnvalue: unknown }) => {
+    if (!jobId.startsWith(prefix) || streamCompleted) return;
+    
+    const chunkData = returnvalue as ChunkJobData | undefined;
+    const event: StreamMessage = chunkData?.event ?? (returnvalue as StreamMessage);
+    
+    console.log(`📨 Live event for ${chatId}: ${event.type}`);
+    
+    if (resolveNext) {
+      resolveNext(event);
+      resolveNext = null;
+    }
+    
+    if (event.type === 'aiMessageComplete') {
+      streamCompleted = true;
+    }
+  };
+
+  messageChunkQueueEvents.on('completed', listener);
 
   try {
-    for await (const event of eventStream) {
-      console.log(`📤 Yielding event for chat ${chatId}: ${event.type}`);
+    while (!streamCompleted) {
+      const event = await new Promise<StreamMessage>((resolve) => {
+        resolveNext = resolve;
+      });
+      
+      console.log(`📤 Yielding live event for ${chatId}: ${event.type}`);
       yield event;
-
+      
       if (event.type === 'aiMessageComplete') {
-        console.log(`🏁 Terminal event received for chat ${chatId}: ${event.type}`);
+        console.log(`🏁 Terminal event received for ${chatId}: ${event.type}`);
         break;
       }
     }
+
+    console.log(`🏁 Message stream completed for ${chatId}`);
   } finally {
-    messageChunkQueueEvents.off('progress', listener!);
+    messageChunkQueueEvents.off('completed', listener);
     console.log(`📡 Message chunk stream subscription closed for chat ${chatId}`);
   }
 }
