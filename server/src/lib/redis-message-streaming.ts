@@ -1,16 +1,16 @@
 /**
- * Message Chunk-based BullMQ Streaming Utilities
+ * Redis-based Message Streaming Utilities
  * 
- * Utility functions for BullMQ streaming using MessageType structure from messageRouter.ts.
- * Designed for streaming message chunks similar to sendWithStream pattern.
+ * Utility functions for streaming using MessageType structure from messageRouter.ts.
+ * Uses Redis sorted sets for history, pub/sub for real-time, and TTL for cleanup.
+ * Stateless design for clustered architecture.
  */
 
-import { Job, Queue, QueueEvents, Worker } from 'bullmq';
 import { randomBytes } from 'crypto';
 import Redis from 'ioredis';
 
-// Redis connection
-const createRedisConnection = () => new Redis({
+// Redis connection - single shared instance
+const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   password: process.env.REDIS_PASSWORD,
@@ -38,9 +38,9 @@ export type StreamMessage = {
   chatId: string;
 };
 
-// Job data for message chunk streaming
-export interface MessageChunkStreamJobData {
-  chatId: string; // chatId serves as both streamId and jobId
+// Stream data for message chunk streaming
+export interface MessageChunkStreamData {
+  chatId: string; // chatId serves as streamId
   userContent: string;
   type: 'demo' | 'ai' | 'conversation';
   intervalMs: number;
@@ -51,25 +51,22 @@ export interface MessageChunkStreamJobData {
   stoppedAt?: string;
 }
 
-// Job data for each individual chunk
-interface ChunkJobData {
-  chatId: string;
-  seq: number;
-  event: StreamMessage;
-}
+// Helper to get stream name for a chat
+const getStreamName = (chatId: string): string => `message-stream-${chatId}`;
 
-const messageChunkStreamQueueName = 'message-chunk-stream-processing';
-
-// Queue instances
-export const messageChunkStreamQueue = new Queue<ChunkJobData>(messageChunkStreamQueueName, {
-  connection: createRedisConnection(),
-  defaultJobOptions: {
-    removeOnComplete: false,
-    removeOnFail: true,
-    attempts: 1,
-  },
-});
-export const messageChunkQueueEvents = new QueueEvents('message-chunk-stream-processing', { connection: createRedisConnection() });
+// Helper to discover active chat streams using Redis KEYS command
+const discoverActiveChatStreams = async (): Promise<string[]> => {
+  try {
+    const streamKeys = await redis.keys('message-stream-*:stream');
+    const chatIds = streamKeys
+      .map(key => key.replace('message-stream-', '').replace(':stream', ''))
+      .filter(chatId => chatId.length > 0);
+    return chatIds;
+  } catch (error) {
+    console.error('❌ Error discovering active chat streams:', error);
+    return [];
+  }
+};
 
 // Content generator utility for different types
 const generateContent = (type: 'demo' | 'ai' | 'conversation', userContent: string): string => {
@@ -104,54 +101,38 @@ const splitIntoChunks = (content: string, numChunks: number): string[] => {
   return chunks;
 };
 
-// Lightweight worker: simply marks each chunk job as completed and makes its data available via QueueEvents
-export const messageChunkStreamWorker = new Worker<ChunkJobData>(
-  messageChunkStreamQueueName,
-  async (job: Job<ChunkJobData>) => {
-    // Return the job data so listeners can access it via QueueEvents 'completed' event
-    return job.data;
-  },
-  {
-    connection: createRedisConnection(),
-    concurrency: 50,
-  }
-);
-
-messageChunkStreamWorker.on('completed', (job) => {
-  console.log(`✅ Chunk job completed: ${job.id}`);
-});
-
-messageChunkStreamWorker.on('failed', (job, err) => {
-  console.error(`❌ Chunk job failed: ${job?.id}.`, err.message);
-});
-
 // Utility functions
 
 /**
- * Start a new message chunk stream using chatId as jobId
+ * Start a new message chunk stream using chatId as streamId
  */
-export async function startMessageChunkStream(data: MessageChunkStreamJobData): Promise<string> {
+export async function startMessageChunkStream(data: MessageChunkStreamData): Promise<string> {
   const { chatId, userContent, type, intervalMs, maxChunks = 20 } = data;
 
   // Kick off producer asynchronously (fire-and-forget)
   (async () => {
     let seq = 0;
+    const streamName = getStreamName(chatId);
 
     const enqueue = async (event: StreamMessage) => {
-      const jobId = `${chatId}:${seq}`;
       try {
-        await messageChunkStreamQueue.add('chunk', { chatId, seq, event } as ChunkJobData, {
-          jobId,
-          removeOnComplete: false,
-          attempts: 1,
-        });
+        // Store event directly in Redis with sequence number for ordering
+        const eventKey = `${streamName}:events:${seq.toString().padStart(6, '0')}`;
+        await redis.setex(eventKey, 3600, JSON.stringify(event)); // 1 hour TTL
+        
+        // Also store in a sorted set for easy retrieval
+        const streamKey = `${streamName}:stream`;
+        await redis.zadd(streamKey, seq, JSON.stringify(event));
+        await redis.expire(streamKey, 3600); // 1 hour TTL
+        
+        // Publish event for real-time listeners
+        const channelKey = `${streamName}:channel`;
+        await redis.publish(channelKey, JSON.stringify(event));
+        
         seq += 1;
+        console.log(`📝 Stored event ${event.type} for chat ${chatId} (seq: ${seq - 1})`);
       } catch (err: unknown) {
-        if (err instanceof Error && err.message.includes('Job with the name')) {
-          seq += 1; // duplicate
-        } else {
-          console.error('❌ enqueue error', err);
-        }
+        console.error('❌ enqueue error', err);
       }
     };
 
@@ -209,9 +190,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamJobData): 
  */
 export async function stopMessageChunkStream(chatId: string): Promise<boolean> {
   try {
-    const redis = createRedisConnection();
     await redis.set(`stop-stream:${chatId}`, '1', 'EX', 60 * 5); // auto-expire in 5 minutes
-    await redis.quit();
     console.log(`🛑 Stop flag set for chat: ${chatId}`);
     return true;
   } catch (error) {
@@ -225,15 +204,15 @@ export async function stopMessageChunkStream(chatId: string): Promise<boolean> {
  */
 export async function getActiveMessageChunkStreams(): Promise<{ streamId: string; chatId: string; jobId: string }[]> {
   try {
-    const activeJobs = await messageChunkStreamQueue.getActive();
-    const seen = new Set<string>();
     const result: { streamId: string; chatId: string; jobId: string }[] = [];
 
-    for (const job of activeJobs) {
-      const chatId = job.data.chatId;
-      if (!seen.has(chatId)) {
-        seen.add(chatId);
-        result.push({ streamId: chatId, chatId, jobId: job.id || 'unknown' });
+    // Check all active chat streams
+    const chatIds = await discoverActiveChatStreams();
+    for (const chatId of chatIds) {
+      const streamKey = `${getStreamName(chatId)}:stream`;
+      const eventCount = await redis.zcard(streamKey);
+      if (eventCount > 0) {
+        result.push({ streamId: chatId, chatId, jobId: streamKey });
       }
     }
 
@@ -250,20 +229,22 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
 export async function* subscribeToMessageChunkStream(chatId: string): AsyncGenerator<StreamMessage, void, unknown> {
   console.log(`🎧 Subscribing to message chunk stream for chat: ${chatId}`);
 
-  const prefix = `${chatId}:`;
+  const streamKey = `${getStreamName(chatId)}:stream`;
+  const channelKey = `${getStreamName(chatId)}:channel`;
   
-  // First replay missing history
-  const fetchCompletedChunks = async () => {
-    const allCompleted = await messageChunkStreamQueue.getJobs(['completed'], 0, -1, false);
-    return allCompleted
-      .filter(j => (j.id as string).startsWith(prefix))
-      .sort((a, b) => (a.data.seq - b.data.seq));
+  // First replay missing history from Redis sorted set
+  const fetchHistoricalEvents = async (): Promise<StreamMessage[]> => {
+    try {
+      const events = await redis.zrange(streamKey, 0, -1);
+      return events.map(eventStr => JSON.parse(eventStr) as StreamMessage);
+    } catch (error) {
+      console.error(`❌ Error fetching historical events for ${chatId}:`, error);
+      return [];
+    }
   };
 
-  const history = await fetchCompletedChunks();
-  for (const job of history) {
-    const completedData = job.returnvalue as ChunkJobData | undefined;
-    const event: StreamMessage = completedData?.event ?? job.data.event;
+  const history = await fetchHistoricalEvents();
+  for (const event of history) {
     console.log(`📺 Historical event for ${chatId}: ${event.type}`);
     yield event;
     
@@ -273,29 +254,33 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
     }
   }
 
-  // Real-time subscription using simple promise-based approach
+  // Real-time subscription using Redis pub/sub
+  const subscriber = redis.duplicate(); // Create separate connection for subscription
   let resolveNext: ((value: StreamMessage) => void) | null = null;
   let streamCompleted = false;
 
-  const listener = ({ jobId, returnvalue }: { jobId: string; returnvalue: unknown }) => {
-    if (!jobId.startsWith(prefix) || streamCompleted) return;
+  const messageHandler = (channel: string, message: string) => {
+    if (channel !== channelKey || streamCompleted) return;
     
-    const chunkData = returnvalue as ChunkJobData | undefined;
-    const event: StreamMessage = chunkData?.event ?? (returnvalue as StreamMessage);
-    
-    console.log(`📨 Live event for ${chatId}: ${event.type}`);
-    
-    if (resolveNext) {
-      resolveNext(event);
-      resolveNext = null;
-    }
-    
-    if (event.type === 'aiMessageComplete') {
-      streamCompleted = true;
+    try {
+      const event = JSON.parse(message) as StreamMessage;
+      console.log(`📨 Live event for ${chatId}: ${event.type}`);
+      
+      if (resolveNext) {
+        resolveNext(event);
+        resolveNext = null;
+      }
+      
+      if (event.type === 'aiMessageComplete') {
+        streamCompleted = true;
+      }
+    } catch (error) {
+      console.error(`❌ Error parsing message for ${chatId}:`, error);
     }
   };
 
-  messageChunkQueueEvents.on('completed', listener);
+  subscriber.on('message', messageHandler);
+  await subscriber.subscribe(channelKey);
 
   try {
     while (!streamCompleted) {
@@ -314,61 +299,118 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
 
     console.log(`🏁 Message stream completed for ${chatId}`);
   } finally {
-    messageChunkQueueEvents.off('completed', listener);
+    await subscriber.unsubscribe(channelKey);
+    subscriber.disconnect();
     console.log(`📡 Message chunk stream subscription closed for chat ${chatId}`);
   }
 }
 
 /**
- * Get message chunk stream queue metrics
+ * Get message chunk stream metrics for a specific chat
  */
-export async function getMessageChunkStreamMetrics() {
-  const [waiting, active, completed, failed, paused] = await Promise.all([
-    messageChunkStreamQueue.getWaiting(),
-    messageChunkStreamQueue.getActive(),
-    messageChunkStreamQueue.getCompleted(),
-    messageChunkStreamQueue.getFailed(),
-    messageChunkStreamQueue.getJobs(['paused'])
-  ]);
+export async function getMessageChunkStreamMetrics(chatId: string) {
+  try {
+    const streamKey = `${getStreamName(chatId)}:stream`;
+    const channelKey = `${getStreamName(chatId)}:channel`;
+    
+    // Get event count from sorted set
+    const totalEvents = await redis.zcard(streamKey);
+    
+    // Check if stream is completed (has aiMessageComplete event)
+    const events = await redis.zrange(streamKey, -1, -1); // Get last event
+    const isCompleted = events.length > 0 && 
+      (JSON.parse(events[0]!) as StreamMessage).type === 'aiMessageComplete';
+    
+    // Get TTL for the stream
+    const ttl = await redis.ttl(streamKey);
+    
+    return {
+      chatId,
+      totalEvents,
+      isCompleted,
+      ttlSeconds: ttl,
+      streamKey,
+      channelKey,
+    };
+  } catch (error) {
+    console.error(`❌ Error getting metrics for chat ${chatId}:`, error);
+    return {
+      chatId,
+      totalEvents: 0,
+      isCompleted: false,
+      ttlSeconds: -1,
+      streamKey: '',
+      channelKey: '',
+    };
+  }
+}
+
+/**
+ * Get metrics for all active chat streams
+ */
+export async function getAllMessageChunkStreamMetrics() {
+  const chatIds = await discoverActiveChatStreams();
+  const allMetrics = await Promise.all(
+    chatIds.map(chatId => getMessageChunkStreamMetrics(chatId))
+  );
 
   return {
-    waiting: waiting.length,
-    active: active.length,
-    completed: completed.length,
-    failed: failed.length,
-    paused: paused.length,
+    totalChats: allMetrics.length,
+    chats: allMetrics,
     activeStreams: await getActiveMessageChunkStreams()
   };
 }
 
 /**
- * Clean up inactive message chunk stream jobs
+ * Clean up inactive message chunk streams for a specific chat
  */
-export async function cleanupInactiveMessageChunkStreamJobs() {
+export async function cleanupInactiveMessageChunkStreams(chatId: string) {
   try {
-    const stalledJobs = await messageChunkStreamQueue.getJobs(['paused']);
-    for (const job of stalledJobs) {
-      console.log(`🧹 Cleaning stalled message chunk stream job: ${job.id || 'unknown'}`);
-      await job.remove();
+    const streamKey = `${getStreamName(chatId)}:stream`;
+    const channelKey = `${getStreamName(chatId)}:channel`;
+    
+    // Delete the stream and related keys
+    const deletedKeys = await redis.del(streamKey);
+    await redis.del(channelKey);
+    
+    // Also clean up any individual event keys
+    const eventKeys = await redis.keys(`${getStreamName(chatId)}:events:*`);
+    let deletedEventKeys = 0;
+    if (eventKeys.length > 0) {
+      deletedEventKeys = await redis.del(...eventKeys);
     }
-
-    await messageChunkStreamQueue.clean(3600 * 1000, 100, 'completed');
-    await messageChunkStreamQueue.clean(24 * 3600 * 1000, 50, 'failed');
-
-    console.log(`🧹 Message chunk stream cleanup completed. Removed ${stalledJobs.length} stalled jobs`);
-    return { removedStalled: stalledJobs.length };
+    
+    console.log(`🧹 Cleaned up stream for ${chatId}. Removed ${deletedKeys} stream keys and ${deletedEventKeys} event keys`);
+    return { chatId, removedKeys: deletedKeys + deletedEventKeys };
   } catch (error) {
-    console.error('❌ Error during message chunk stream cleanup:', error);
+    console.error(`❌ Error during cleanup for ${chatId}:`, error);
     throw error;
   }
 }
 
+/**
+ * Clean up all inactive message chunk streams
+ */
+export async function cleanupAllInactiveMessageChunkStreams() {
+  const chatIds = await discoverActiveChatStreams();
+  const results = await Promise.all(
+    chatIds.map(chatId => cleanupInactiveMessageChunkStreams(chatId))
+  );
+  
+  const totalRemoved = results.reduce((sum: number, result: any) => sum + result.removedKeys, 0);
+  console.log(`🧹 Total cleanup completed. Removed ${totalRemoved} stream keys and event keys across ${results.length} chats`);
+  
+  return { totalChats: results.length, totalRemoved, details: results };
+}
+
 // Cleanup on process exit
 const cleanup = async () => {
-  console.log('🧹 Cleaning up message chunk stream BullMQ resources...');
-  await messageChunkStreamWorker.close();
-  await messageChunkStreamQueue.close();
-  await messageChunkQueueEvents.close();
+  console.log('🧹 Cleaning up message chunk stream resources...');
+  
+  // Close the shared Redis connection
+  await redis.quit();
+  
+  console.log('🧹 Redis connection closed');
 };
 
 process.on('SIGINT', cleanup);

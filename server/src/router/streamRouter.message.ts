@@ -1,20 +1,21 @@
 /**
- * Message Chunk-based Stream Router
+ * Redis-based Message Stream Router
  * 
- * Uses MessageType structure from messageRouter.ts with BullMQ streaming.
+ * Uses MessageType structure from messageRouter.ts with Redis streaming.
  * Designed for streaming message chunks similar to sendWithStream pattern.
- * Uses chatId as both streamId and jobId for simplicity.
+ * Uses Redis sorted sets for history and pub/sub for real-time events.
  */
 
 import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import {
   getActiveMessageChunkStreams,
+  getAllMessageChunkStreamMetrics,
   getMessageChunkStreamMetrics,
   startMessageChunkStream,
   stopMessageChunkStream,
   subscribeToMessageChunkStream
-} from '../lib/bullmq-message-utils';
+} from '../lib/redis-message-streaming';
 import { withOwnerProcedure } from '../procedures/base';
 
 export const messageStreamRouter = {
@@ -45,7 +46,6 @@ export const messageStreamRouter = {
       return {
         chatId: resultChatId,
         streamId: resultChatId,
-        jobId: resultChatId,
         message: `Started ${input.type} message chunk stream for chat ${chatId} with ${input.maxChunks} chunks`,
         settings: {
           type: input.type,
@@ -86,8 +86,17 @@ export const messageStreamRouter = {
 
   // Get message chunk stream queue metrics
   getMessageChunkStreamMetrics: withOwnerProcedure
-    .query(async () => {
-      return await getMessageChunkStreamMetrics();
+    .input(z.object({
+      chatId: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      if (input.chatId) {
+        // Get metrics for specific chat
+        return await getMessageChunkStreamMetrics(input.chatId);
+      } else {
+        // Get metrics for all chats
+        return await getAllMessageChunkStreamMetrics();
+      }
     }),
 
   // Listen to message chunk stream by chatId - returns async generator like sendWithStream
