@@ -142,12 +142,15 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
         seq += 1;
 
         // Append to the sorted set for ordered history
-        await redis.zadd(streamKey, currentSeq, JSON.stringify(event));
-        await redis.expire(streamKey, 3600);
-
-        // Publish to live subscribers
         const channelKey = `${streamName}:channel`;
-        await redis.publish(channelKey, JSON.stringify(event));
+
+        // Use Redis pipeline to group the three commands into one round-trip
+        await redis
+          .pipeline()
+          .zadd(streamKey, currentSeq, JSON.stringify(event))
+          .expire(streamKey, 3600)
+          .publish(channelKey, JSON.stringify(event))
+          .exec();
 
         producedEvents += 1;
         console.log(`📝 Stored event ${event.type} for chat ${chatId} (seq: ${currentSeq})`);
