@@ -129,10 +129,6 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
         const currentSeq = seq;
         seq += 1;
 
-        // Store event key for optional direct look-ups (TTL kept for easy cleanup)
-        const eventKey = `${streamName}:events:${currentSeq.toString().padStart(9, '0')}`;
-        await redis.setex(eventKey, 3600, JSON.stringify(event)); // 1 hour TTL
-
         // Append to the sorted set for ordered history
         await redis.zadd(streamKey, currentSeq, JSON.stringify(event));
         await redis.expire(streamKey, 3600);
@@ -385,15 +381,8 @@ export async function cleanupInactiveMessageChunkStreams(chatId: string) {
     const deletedKeys = await redis.del(streamKey);
     await redis.del(channelKey);
     
-    // Also clean up any individual event keys
-    const eventKeys = await redis.keys(`${getStreamName(chatId)}:events:*`);
-    let deletedEventKeys = 0;
-    if (eventKeys.length > 0) {
-      deletedEventKeys = await redis.del(...eventKeys);
-    }
-    
-    console.log(`🧹 Cleaned up stream for ${chatId}. Removed ${deletedKeys} stream keys and ${deletedEventKeys} event keys`);
-    return { chatId, removedKeys: deletedKeys + deletedEventKeys };
+    console.log(`🧹 Cleaned up stream for ${chatId}. Removed ${deletedKeys} stream keys`);
+    return { chatId, removedKeys: deletedKeys };
   } catch (error) {
     console.error(`❌ Error during cleanup for ${chatId}:`, error);
     throw error;
@@ -410,7 +399,7 @@ export async function cleanupAllInactiveMessageChunkStreams() {
   );
   
   const totalRemoved = results.reduce((sum: number, result: any) => sum + result.removedKeys, 0);
-  console.log(`🧹 Total cleanup completed. Removed ${totalRemoved} stream keys and event keys across ${results.length} chats`);
+  console.log(`🧹 Total cleanup completed. Removed ${totalRemoved} stream keys across ${results.length} chats`);
   
   return { totalChats: results.length, totalRemoved, details: results };
 }
