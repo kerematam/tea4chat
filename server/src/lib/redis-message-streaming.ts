@@ -111,26 +111,36 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
   // Kick off producer asynchronously (fire-and-forget)
   (async () => {
-    let seq = 0;
+    // Use an atomic Redis counter to guarantee globally unique, monotonic sequence numbers
+    const seqKey = `${getStreamName(chatId)}:seq`; // keeps track of next sequence id for this chat
+    let producedEvents = 0; // local counter only for logging
     const streamName = getStreamName(chatId);
 
     const enqueue = async (event: StreamMessage) => {
       try {
-        // Store event directly in Redis with sequence number for ordering
-        const eventKey = `${streamName}:events:${seq.toString().padStart(6, '0')}`;
+        // Atomically fetch next sequence number for this chat
+        const nextSeq = (await redis.incr(seqKey)) - 1; // zero-based index
+
+        // Set TTL for the seq counter only once (on first use)
+        if (nextSeq === 0) {
+          await redis.expire(seqKey, 3600); // align with event TTL
+        }
+
+        // Store event key for optional direct look-ups (TTL kept for easy cleanup)
+        const eventKey = `${streamName}:events:${nextSeq.toString().padStart(9, '0')}`;
         await redis.setex(eventKey, 3600, JSON.stringify(event)); // 1 hour TTL
-        
-        // Also store in a sorted set for easy retrieval
+
+        // Append to the sorted set for ordered history
         const streamKey = `${streamName}:stream`;
-        await redis.zadd(streamKey, seq, JSON.stringify(event));
-        await redis.expire(streamKey, 3600); // 1 hour TTL
-        
-        // Publish event for real-time listeners
+        await redis.zadd(streamKey, nextSeq, JSON.stringify(event));
+        await redis.expire(streamKey, 3600);
+
+        // Publish to live subscribers
         const channelKey = `${streamName}:channel`;
         await redis.publish(channelKey, JSON.stringify(event));
-        
-        seq += 1;
-        console.log(`📝 Stored event ${event.type} for chat ${chatId} (seq: ${seq - 1})`);
+
+        producedEvents += 1;
+        console.log(`📝 Stored event ${event.type} for chat ${chatId} (seq: ${nextSeq})`);
       } catch (err: unknown) {
         console.error('❌ enqueue error', err);
       }
@@ -178,7 +188,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     const completedMessage: MessageType = { ...aiMessage, content: accumulated, text: accumulated };
     await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
 
-    console.log(`🎬 Enqueued ${seq} events for chat ${chatId}`);
+    console.log(`🎬 Enqueued ${producedEvents} events for chat ${chatId}`);
   })();
 
   // immediately return chatId so caller isn't blocked
