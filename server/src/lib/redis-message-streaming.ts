@@ -58,13 +58,25 @@ export interface MessageChunkStreamData {
 // Helper to get stream name for a chat
 const getStreamName = (chatId: string): string => `message-stream-${chatId}`;
 
-// Helper to discover active chat streams using Redis KEYS command
+// Helper to discover active chat streams using non-blocking SCAN
 const discoverActiveChatStreams = async (): Promise<string[]> => {
+  const pattern = 'message-stream-*:stream';
+  const chatIds: string[] = [];
+
   try {
-    const streamKeys = await redis.keys('message-stream-*:stream');
-    const chatIds = streamKeys
-      .map(key => key.replace('message-stream-', '').replace(':stream', ''))
-      .filter(chatId => chatId.length > 0);
+    let cursor = '0';
+    do {
+      // SCAN cursor MATCH pattern COUNT 100
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', '100');
+      cursor = nextCursor;
+
+      chatIds.push(
+        ...keys
+          .map(key => key.replace('message-stream-', '').replace(':stream', ''))
+          .filter(id => id.length > 0)
+      );
+    } while (cursor !== '0');
+
     return chatIds;
   } catch (error) {
     console.error('❌ Error discovering active chat streams:', error);
