@@ -169,10 +169,19 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     const fullContent = generateContent(type, userContent);
     const chunks = splitIntoChunks(fullContent, maxChunks);
 
+    const stopKey = `stop-stream:${chatId}`;
     let accumulated = '';
+
     for (let i = 0; i < chunks.length; i++) {
+      // Check stop flag before producing next chunk
+      if (await redis.exists(stopKey)) {
+        console.log(`🛑 Stop requested for chat ${chatId}. Halting stream at chunk ${i}.`);
+        break;
+      }
+
       const chunk = chunks[i];
       accumulated += chunk;
+
       await enqueue({
         type: 'aiMessageChunk',
         messageId: aiMessage.id,
@@ -180,11 +189,17 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
         chunkId: `chunk-${i + 1}`,
         chatId,
       });
+
+      // Small delay between chunks if configured
       if (intervalMs > 0) await new Promise(res => setTimeout(res, intervalMs));
     }
 
+    // Always signal completion so subscribers can finish cleanly
     const completedMessage: MessageType = { ...aiMessage, content: accumulated, text: accumulated };
     await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
+
+    // Clean up stop flag if it was set
+    await redis.del(stopKey);
 
     console.log(`🎬 Enqueued ${producedEvents} events for chat ${chatId}`);
   })();
