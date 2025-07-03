@@ -1,9 +1,13 @@
 /**
  * Redis-based Message Streaming Utilities
+ *
+ * Utility functions for streaming using MessageType structure from
+ * messageRouter.ts. Uses Redis sorted sets for history, pub/sub for real-time,
+ * and TTL for cleanup. Stateless design for clustered architecture.
+ *
+ * The approach satisfies "resume / multi-device replay" because history is
+ * persisted independently of the live pub/sub channel.
  * 
- * Utility functions for streaming using MessageType structure from messageRouter.ts.
- * Uses Redis sorted sets for history, pub/sub for real-time, and TTL for cleanup.
- * Stateless design for clustered architecture.
  */
 
 import { randomBytes } from 'crypto';
@@ -111,28 +115,26 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
   // Kick off producer asynchronously (fire-and-forget)
   (async () => {
-    // Use an atomic Redis counter to guarantee globally unique, monotonic sequence numbers
-    const seqKey = `${getStreamName(chatId)}:seq`; // keeps track of next sequence id for this chat
-    let producedEvents = 0; // local counter only for logging
     const streamName = getStreamName(chatId);
+
+    // Determine starting sequence by reading current length once
+    const streamKey = `${streamName}:stream`;
+    let seq = await redis.zcard(streamKey);
+
+    let producedEvents = 0; // local counter only for logging
 
     const enqueue = async (event: StreamMessage) => {
       try {
-        // Atomically fetch next sequence number for this chat
-        const nextSeq = (await redis.incr(seqKey)) - 1; // zero-based index
-
-        // Set TTL for the seq counter only once (on first use)
-        if (nextSeq === 0) {
-          await redis.expire(seqKey, 3600); // align with event TTL
-        }
+        // Use local sequence counter (increment after use)
+        const currentSeq = seq;
+        seq += 1;
 
         // Store event key for optional direct look-ups (TTL kept for easy cleanup)
-        const eventKey = `${streamName}:events:${nextSeq.toString().padStart(9, '0')}`;
+        const eventKey = `${streamName}:events:${currentSeq.toString().padStart(9, '0')}`;
         await redis.setex(eventKey, 3600, JSON.stringify(event)); // 1 hour TTL
 
         // Append to the sorted set for ordered history
-        const streamKey = `${streamName}:stream`;
-        await redis.zadd(streamKey, nextSeq, JSON.stringify(event));
+        await redis.zadd(streamKey, currentSeq, JSON.stringify(event));
         await redis.expire(streamKey, 3600);
 
         // Publish to live subscribers
@@ -140,7 +142,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
         await redis.publish(channelKey, JSON.stringify(event));
 
         producedEvents += 1;
-        console.log(`📝 Stored event ${event.type} for chat ${chatId} (seq: ${nextSeq})`);
+        console.log(`📝 Stored event ${event.type} for chat ${chatId} (seq: ${currentSeq})`);
       } catch (err: unknown) {
         console.error('❌ enqueue error', err);
       }
