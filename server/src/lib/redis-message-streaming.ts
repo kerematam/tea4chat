@@ -11,15 +11,15 @@
  */
 
 import { randomBytes } from 'crypto';
-import Redis from 'ioredis';
+import { redis } from './redis';
 
-// Redis connection - single shared instance
-const redis = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-  maxRetriesPerRequest: null,
-  lazyConnect: true,
+// Handle Redis connection events for this instance
+redis.on('connect', () => {
+  console.log('Redis Message Streaming connected successfully');
+});
+
+redis.on('error', (error) => {
+  console.error('Redis Message Streaming connection error:', error);
 });
 
 // MessageType from messageRouter.ts

@@ -34,6 +34,10 @@ redis.on('ready', () => {
   console.log('Redis is ready to accept commands');
 });
 
+redis.on('close', () => {
+  console.log('Redis connection closed');
+});
+
 redisPubSub.on('connect', () => {
   console.log('Redis Pub/Sub connected successfully');
 });
@@ -41,6 +45,60 @@ redisPubSub.on('connect', () => {
 redisPubSub.on('error', (error) => {
   console.error('Redis Pub/Sub connection error:', error);
 });
+
+redisPubSub.on('close', () => {
+  console.log('Redis Pub/Sub connection closed');
+});
+
+// Health check function
+export const checkRedisHealth = async (): Promise<{ redis: boolean; pubsub: boolean; error?: string }> => {
+  try {
+    // Test main Redis connection
+    await redis.ping();
+    // Test pub/sub Redis connection
+    await redisPubSub.ping();
+    
+    return {
+      redis: true,
+      pubsub: true
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Redis health check failed:', errorMessage);
+    return {
+      redis: false,
+      pubsub: false,
+      error: errorMessage
+    };
+  }
+};
+
+// Wrapper function for Redis operations with error handling
+export const safeRedisOperation = async <T>(
+  operation: () => Promise<T>,
+  fallbackValue?: T,
+  operationName?: string
+): Promise<T | undefined> => {
+  try {
+    return await operation();
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Redis operation failed ${operationName ? `(${operationName})` : ''}:`, errorMessage);
+    
+    // Return fallback value if provided
+    if (fallbackValue !== undefined) {
+      return fallbackValue;
+    }
+    
+    // Re-throw critical errors that should not be ignored
+    if (error instanceof Error && error.message.includes('READONLY')) {
+      throw error;
+    }
+    
+    return undefined;
+  }
+};
+
 
 // Helper functions for common cache operations
 export const cacheHelpers = {
@@ -60,26 +118,42 @@ export const cacheHelpers = {
   // Cache a chat list with expiration
   setChatList: async (ownerId: string, limit: number, cursor: string | undefined, data: any, ttlSeconds = 300) => {
     const key = cacheHelpers.keys.chatList(ownerId, limit, cursor);
-    await redis.setex(key, ttlSeconds, JSON.stringify(data));
+    return await safeRedisOperation(
+      () => redis.setex(key, ttlSeconds, JSON.stringify(data)),
+      undefined,
+      'setChatList'
+    );
   },
 
   // Get cached chat list
   getChatList: async (ownerId: string, limit: number, cursor: string | undefined) => {
     const key = cacheHelpers.keys.chatList(ownerId, limit, cursor);
-    const cached = await redis.get(key);
+    const cached = await safeRedisOperation(
+      () => redis.get(key),
+      null,
+      'getChatList'
+    );
     return cached ? JSON.parse(cached) : null;
   },
 
   // Cache a single chat
   setChat: async (chatId: string, data: any, ttlSeconds = 600) => {
     const key = cacheHelpers.keys.chat(chatId);
-    await redis.setex(key, ttlSeconds, JSON.stringify(data));
+    return await safeRedisOperation(
+      () => redis.setex(key, ttlSeconds, JSON.stringify(data)),
+      undefined,
+      'setChat'
+    );
   },
 
   // Get cached chat
   getChat: async (chatId: string) => {
     const key = cacheHelpers.keys.chat(chatId);
-    const cached = await redis.get(key);
+    const cached = await safeRedisOperation(
+      () => redis.get(key),
+      null,
+      'getChat'
+    );
     return cached ? JSON.parse(cached) : null;
   },
 
@@ -283,5 +357,5 @@ export const cacheHelpers = {
   }
 };
 
-export { redisPubSub };
+export { redis, redisPubSub };
 export default redis; 

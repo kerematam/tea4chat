@@ -4,6 +4,7 @@ import { cors } from 'hono/cors';
 import type { Context } from "./context";
 import { appRouter } from "./router";
 
+import { checkRedisHealth } from './lib/redis';
 import { pinoLogger } from './middleware/pino-logger';
 import authRoutes from './router/authRoutes';
 
@@ -48,6 +49,25 @@ app.use('/trpc/*', trpcServer({
     return ctx;
   }
 }));
+
+// Add Redis health check during startup
+async function startupHealthCheck() {
+  console.log('🔍 Performing startup health checks...');
+  
+  // Check Redis health
+  const redisHealth = await checkRedisHealth();
+  
+  if (!redisHealth.redis || !redisHealth.pubsub) {
+    console.error('❌ Redis health check failed:', redisHealth.error);
+    console.log('⚠️  Application will start but Redis-dependent features may not work properly');
+    console.log('📝 Consider implementing graceful degradation for Redis-dependent features');
+  } else {
+    console.log('✅ Redis health check passed - all connections working');
+  }
+}
+
+// Call health check during startup
+startupHealthCheck().catch(console.error);
 
 // Start server
 // console.log(`Server starting at http://localhost:${port}`);

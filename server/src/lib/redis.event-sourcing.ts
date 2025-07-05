@@ -43,6 +43,23 @@ const redisPubSub = new Redis({
     lazyConnect: true,
 });
 
+// Handle Redis connection events
+redis.on('connect', () => {
+    console.log('Redis Event Sourcing connected successfully');
+});
+
+redis.on('error', (error) => {
+    console.error('Redis Event Sourcing connection error:', error);
+});
+
+redisPubSub.on('connect', () => {
+    console.log('Redis Event Sourcing Pub/Sub connected successfully');
+});
+
+redisPubSub.on('error', (error) => {
+    console.error('Redis Event Sourcing Pub/Sub connection error:', error);
+});
+
 export const streamHelpers = {
     keys: {
         // Redis Stream for storing all events

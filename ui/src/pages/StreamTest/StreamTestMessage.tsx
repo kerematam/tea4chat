@@ -77,15 +77,35 @@ const convertToMessageType = (serverMessage: ServerMessageType): MessageType => 
   createdAt: new Date(serverMessage.createdAt)
 });
 
-// Queue metrics interface
-interface MessageChunkStreamMetrics {
-  waiting: number;
-  active: number;
-  completed: number;
-  failed: number;
-  paused: number;
-  activeStreams: { streamId: string; chatId: string; jobId: string }[];
-}
+  // Queue metrics interface - matches backend response
+  interface MessageChunkStreamMetrics {
+    // Legacy BullMQ-style metrics (fallback to 0)
+    waiting?: number;
+    active?: number;
+    completed?: number;
+    failed?: number;
+    paused?: number;
+    
+    // Single chat metrics
+    chatId?: string;
+    totalEvents?: number;
+    isCompleted?: boolean;
+    ttlSeconds?: number;
+    streamKey?: string;
+    channelKey?: string;
+    
+    // Multiple chats metrics
+    chats?: {
+      chatId: string;
+      totalEvents: number;
+      isCompleted: boolean;
+      ttlSeconds: number;
+      streamKey: string;
+      channelKey: string;
+    }[];
+    activeStreams?: { streamId: string; chatId: string; jobId: string }[];
+    totalChats?: number;
+  }
 
 const StreamTestMessage: React.FC = () => {
   // Stream state - streamId = chatId for simplicity
@@ -224,7 +244,7 @@ const StreamTestMessage: React.FC = () => {
   });
 
   const getMetricsQuery = trpc.messageStream.getMessageChunkStreamMetrics.useQuery(
-    undefined,
+    {},
     {
       // refetchInterval: 5000,
     }
@@ -829,7 +849,7 @@ const StreamTestMessage: React.FC = () => {
                   <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
                     <Typography variant="subtitle2">Active Streams</Typography>
                     <Typography variant="h6" color="primary.main">
-                      {metrics.activeStreams.length}
+                      {metrics.activeStreams?.length || 0}
                     </Typography>
                   </Paper>
                 </Grid>
@@ -857,7 +877,7 @@ const StreamTestMessage: React.FC = () => {
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack spacing={2}>
                   <Typography variant="subtitle2">
-                    Active Streams: {metrics?.activeStreams.length || 0}
+                    Active Streams: {metrics?.activeStreams?.length || 0}
                   </Typography>
 
                   {metrics?.activeStreams &&
