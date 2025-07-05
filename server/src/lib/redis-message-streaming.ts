@@ -58,6 +58,8 @@ export interface MessageChunkStreamData {
 // Helper to get stream name for a chat
 const getStreamName = (chatId: string): string => `message-stream-${chatId}`;
 
+
+
 // Helper to discover active chat streams using non-blocking SCAN
 const discoverActiveChatStreams = async (): Promise<string[]> => {
   const pattern = 'message-stream-*:stream';
@@ -117,6 +119,12 @@ const splitIntoChunks = (content: string, numChunks: number): string[] => {
   return chunks;
 };
 
+
+
+
+
+
+
 // Utility functions
 
 /**
@@ -128,34 +136,25 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
   // Kick off producer asynchronously (fire-and-forget)
   (async () => {
     const streamName = getStreamName(chatId);
-
-    // Determine starting sequence by reading current length once
     const streamKey = `${streamName}:stream`;
-    let seq = await redis.zcard(streamKey);
 
     let producedEvents = 0; // local counter only for logging
 
+    // Pure Redis Streams implementation - single data structure
     const enqueue = async (event: StreamMessage) => {
       try {
-        // Use local sequence counter (increment after use)
-        const currentSeq = seq;
-        seq += 1;
-
-        // Append to the sorted set for ordered history
-        const channelKey = `${streamName}:channel`;
-
-        // Use Redis pipeline to group the three commands into one round-trip
-        await redis
-          .pipeline()
-          .zadd(streamKey, currentSeq, JSON.stringify(event))
-          .expire(streamKey, 3600)
-          .publish(channelKey, JSON.stringify(event))
-          .exec();
+        // Use Redis Streams with automatic ID generation and optional trimming
+        await redis.xadd(
+          streamKey,
+          'MAXLEN', '~', '1000', // Keep approximately 1000 most recent messages
+          '*', // Let Redis generate the ID automatically
+          'event', JSON.stringify(event)
+        );
 
         producedEvents += 1;
-        console.log(`📝 Stored event ${event.type} for chat ${chatId} (seq: ${currentSeq})`);
+        console.log(`📝 Streamed event ${event.type} for chat ${chatId} (total: ${producedEvents})`);
       } catch (err: unknown) {
-        console.error('❌ enqueue error', err);
+        console.error('❌ stream enqueue error', err);
       }
     };
 
@@ -196,7 +195,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
       const chunk = chunks[i];
       accumulated += chunk;
-
+      console.log(`🎬 Streamed chunk ${i + 1} for chat ${chatId}`);
       await enqueue({
         type: 'aiMessageChunk',
         messageId: aiMessage.id,
@@ -206,6 +205,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
       });
 
       // Small delay between chunks if configured
+      console.log(`🎬 Waiting for ${intervalMs}ms before next chunk`);
       if (intervalMs > 0) await new Promise(res => setTimeout(res, intervalMs));
     }
 
@@ -216,7 +216,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     // Clean up stop flag if it was set
     await redis.del(stopKey);
 
-    console.log(`🎬 Enqueued ${producedEvents} events for chat ${chatId}`);
+    console.log(`🎬 Streamed ${producedEvents} events for chat ${chatId}`);
   })();
 
   // immediately return chatId so caller isn't blocked
@@ -248,8 +248,49 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
     const chatIds = await discoverActiveChatStreams();
     for (const chatId of chatIds) {
       const streamKey = `${getStreamName(chatId)}:stream`;
-      const eventCount = await redis.zcard(streamKey);
-      if (eventCount > 0) {
+      
+      // Check key type first to handle transition from sorted sets
+      const keyType = await redis.type(streamKey);
+      
+      if (keyType === 'zset') {
+        // Old sorted set key - migrate to stream
+        console.log(`⚠️ Found old sorted set key for chat ${chatId}, migrating to stream...`);
+        
+        try {
+          // Get all events from sorted set
+          const events = await redis.zrange(streamKey, 0, -1);
+          
+          // Delete the old sorted set
+          await redis.del(streamKey);
+          
+          // Add events to new stream
+          if (events.length > 0) {
+            const pipeline = redis.pipeline();
+            events.forEach(eventStr => {
+              pipeline.xadd(streamKey, '*', 'event', eventStr);
+            });
+            await pipeline.exec();
+            
+            console.log(`✅ Migrated ${events.length} events from sorted set to stream for chat ${chatId}`);
+          }
+        } catch (migrationError) {
+          console.error(`❌ Error migrating sorted set for chat ${chatId}:`, migrationError);
+          // If migration fails, skip this stream
+          continue;
+        }
+      } else if (keyType === 'none') {
+        // Key doesn't exist, skip
+        continue;
+      } else if (keyType !== 'stream') {
+        // Key exists but wrong type and not a sorted set
+        console.log(`⚠️ Key ${streamKey} has unexpected type: ${keyType}, deleting...`);
+        await redis.del(streamKey);
+        continue;
+      }
+      
+      // Now we can safely use stream operations
+      const streamLength = await redis.xlen(streamKey);
+      if (streamLength > 0) {
         result.push({ streamId: chatId, chatId, jobId: streamKey });
       }
     }
@@ -262,84 +303,89 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
 }
 
 /**
- * Subscribe to message chunk stream events by chatId
+ * Subscribe to message chunk stream events using pure Redis Streams
  */
 export async function* subscribeToMessageChunkStream(chatId: string): AsyncGenerator<StreamMessage, void, unknown> {
-  console.log(`🎧 Subscribing to message chunk stream for chat: ${chatId}`);
+  console.log(`🎧 Subscribing to Redis Streams for chat: ${chatId}`);
 
   const streamKey = `${getStreamName(chatId)}:stream`;
-  const channelKey = `${getStreamName(chatId)}:channel`;
-  
-  // First replay missing history from Redis sorted set
-  const fetchHistoricalEvents = async (): Promise<StreamMessage[]> => {
-    try {
-      const events = await redis.zrange(streamKey, 0, -1);
-      return events.map(eventStr => JSON.parse(eventStr) as StreamMessage);
-    } catch (error) {
-      console.error(`❌ Error fetching historical events for ${chatId}:`, error);
-      return [];
-    }
-  };
-
-  const history = await fetchHistoricalEvents();
-  for (const event of history) {
-    console.log(`📺 Historical event for ${chatId}: ${event.type}`);
-    yield event;
-    
-    if (event.type === 'aiMessageComplete') {
-      console.log(`🏁 Stream already completed for ${chatId}`);
-      return; // stream already finished
-    }
-  }
-
-  // Real-time subscription using Redis pub/sub
-  const subscriber = redis.duplicate(); // Create separate connection for subscription
-  let resolveNext: ((value: StreamMessage) => void) | null = null;
+  let lastSeenId = '0'; // Start from beginning
   let streamCompleted = false;
-
-  const messageHandler = (channel: string, message: string) => {
-    if (channel !== channelKey || streamCompleted) return;
-    
-    try {
-      const event = JSON.parse(message) as StreamMessage;
-      console.log(`📨 Live event for ${chatId}: ${event.type}`);
-      
-      if (resolveNext) {
-        resolveNext(event);
-        resolveNext = null;
-      }
-      
-      if (event.type === 'aiMessageComplete') {
-        streamCompleted = true;
-      }
-    } catch (error) {
-      console.error(`❌ Error parsing message for ${chatId}:`, error);
-    }
-  };
-
-  subscriber.on('message', messageHandler);
-  await subscriber.subscribe(channelKey);
-
+  
   try {
-    while (!streamCompleted) {
-      const event = await new Promise<StreamMessage>((resolve) => {
-        resolveNext = resolve;
-      });
+    // Phase 1: Read all historical messages from the beginning
+    console.log(`📚 Reading historical messages for chat ${chatId}`);
+    
+    while (true) {
+      const messages = await redis.xread('STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
       
-      console.log(`📤 Yielding live event for ${chatId}: ${event.type}`);
-      yield event;
-      
-      if (event.type === 'aiMessageComplete') {
-        console.log(`🏁 Terminal event received for ${chatId}: ${event.type}`);
+      if (!messages || messages.length === 0) {
+        // No more historical messages, switch to real-time
         break;
       }
+      
+      const streamData = messages[0];
+      if (streamData) {
+        const [, entries] = streamData;
+        
+        for (const [messageId, fields] of entries) {
+          const eventData = fields[1]; // 'event' field value
+          if (eventData) {
+            const event = JSON.parse(eventData) as StreamMessage;
+            console.log(`📺 Historical event for ${chatId}: ${event.type}`);
+            
+            yield event;
+            lastSeenId = messageId; // Update last seen ID
+            
+            if (event.type === 'aiMessageComplete') {
+              console.log(`🏁 Historical stream completed for ${chatId}`);
+              streamCompleted = true;
+              return;
+            }
+          }
+        }
+      }
     }
-
-    console.log(`🏁 Message stream completed for ${chatId}`);
+    
+    // Phase 2: Real-time consumption using XREAD BLOCK
+    console.log(`🔴 Switching to real-time mode for chat ${chatId}`);
+    
+    while (!streamCompleted) {
+      // Block for up to 5 seconds waiting for new messages
+      const messages = await redis.xread('BLOCK', '5000', 'STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
+      
+      if (!messages || messages.length === 0) {
+        // Timeout occurred, check if we should continue
+        continue;
+      }
+      
+      const streamData = messages[0];
+      if (streamData) {
+        const [, entries] = streamData;
+        
+        for (const [messageId, fields] of entries) {
+          const eventData = fields[1]; // 'event' field value
+          if (eventData) {
+            const event = JSON.parse(eventData) as StreamMessage;
+            console.log(`📨 Real-time event for ${chatId}: ${event.type}`);
+            
+            yield event;
+            lastSeenId = messageId; // Update last seen ID
+            
+            if (event.type === 'aiMessageComplete') {
+              console.log(`🏁 Real-time stream completed for ${chatId}`);
+              streamCompleted = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error(`❌ Error in stream subscription for ${chatId}:`, error);
   } finally {
-    await subscriber.unsubscribe(channelKey);
-    subscriber.disconnect();
-    console.log(`📡 Message chunk stream subscription closed for chat ${chatId}`);
+    console.log(`📡 Redis Streams subscription closed for chat ${chatId}`);
   }
 }
 
@@ -349,54 +395,109 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
 export async function getMessageChunkStreamMetrics(chatId: string) {
   try {
     const streamKey = `${getStreamName(chatId)}:stream`;
-    const channelKey = `${getStreamName(chatId)}:channel`;
     
-    // Get event count from sorted set
-    const totalEvents = await redis.zcard(streamKey);
+    // Check key type first to handle transition from sorted sets
+    const keyType = await redis.type(streamKey);
     
-    // Check if stream is completed (has aiMessageComplete event)
-    const events = await redis.zrange(streamKey, -1, -1); // Get last event
-    const isCompleted = events.length > 0 && 
-      (JSON.parse(events[0]!) as StreamMessage).type === 'aiMessageComplete';
+    if (keyType === 'zset') {
+      // Old sorted set key - migrate to stream or skip
+      console.log(`⚠️ Found old sorted set key for chat ${chatId}, migrating to stream...`);
+      
+      try {
+        // Get all events from sorted set
+        const events = await redis.zrange(streamKey, 0, -1);
+        
+        // Delete the old sorted set
+        await redis.del(streamKey);
+        
+        // Add events to new stream
+        if (events.length > 0) {
+          const pipeline = redis.pipeline();
+          events.forEach(eventStr => {
+            pipeline.xadd(streamKey, '*', 'event', eventStr);
+          });
+          await pipeline.exec();
+          
+          console.log(`✅ Migrated ${events.length} events from sorted set to stream for chat ${chatId}`);
+        }
+      } catch (migrationError) {
+        console.error(`❌ Error migrating sorted set for chat ${chatId}:`, migrationError);
+        // If migration fails, just delete the old key
+        await redis.del(streamKey);
+        return null;
+      }
+    } else if (keyType === 'none') {
+      // Key doesn't exist
+      return null;
+    } else if (keyType !== 'stream') {
+      // Key exists but wrong type and not a sorted set
+      console.log(`⚠️ Key ${streamKey} has unexpected type: ${keyType}, deleting...`);
+      await redis.del(streamKey);
+      return null;
+    }
     
-    // Get TTL for the stream
-    const ttl = await redis.ttl(streamKey);
+    // Now we can safely use stream operations
+    const streamLength = await redis.xlen(streamKey);
+    
+    let firstId = null;
+    let lastId = null;
+    let oldestTimestamp = null;
+    let newestTimestamp = null;
+    
+    if (streamLength > 0) {
+      // Get first and last message IDs
+      const firstMessages = await redis.xrange(streamKey, '-', '+', 'COUNT', '1');
+      const lastMessages = await redis.xrevrange(streamKey, '+', '-', 'COUNT', '1');
+      
+      if (firstMessages.length > 0 && firstMessages[0]) {
+        firstId = firstMessages[0][0];
+        // Extract timestamp from stream ID (format: timestamp-sequence)
+        const timestampPart = firstId.split('-')[0];
+        if (timestampPart) {
+          oldestTimestamp = parseInt(timestampPart);
+        }
+      }
+      
+      if (lastMessages.length > 0 && lastMessages[0]) {
+        lastId = lastMessages[0][0];
+        const timestampPart = lastId.split('-')[0];
+        if (timestampPart) {
+          newestTimestamp = parseInt(timestampPart);
+        }
+      }
+    }
     
     return {
       chatId,
-      totalEvents,
-      isCompleted,
-      ttlSeconds: ttl,
       streamKey,
-      channelKey,
+      totalMessages: streamLength,
+      firstMessageId: firstId,
+      lastMessageId: lastId,
+      oldestTimestamp,
+      newestTimestamp,
+      ageSeconds: newestTimestamp && oldestTimestamp ? (newestTimestamp - oldestTimestamp) / 1000 : 0
     };
   } catch (error) {
-    console.error(`❌ Error getting metrics for chat ${chatId}:`, error);
-    return {
-      chatId,
-      totalEvents: 0,
-      isCompleted: false,
-      ttlSeconds: -1,
-      streamKey: '',
-      channelKey: '',
-    };
+    console.error(`❌ Error getting message chunk stream metrics for ${chatId}:`, error);
+    return null;
   }
 }
 
 /**
- * Get metrics for all active chat streams
+ * Get metrics for all active message chunk streams
  */
 export async function getAllMessageChunkStreamMetrics() {
-  const chatIds = await discoverActiveChatStreams();
-  const allMetrics = await Promise.all(
-    chatIds.map(chatId => getMessageChunkStreamMetrics(chatId))
-  );
-
-  return {
-    totalChats: allMetrics.length,
-    chats: allMetrics,
-    activeStreams: await getActiveMessageChunkStreams()
-  };
+  try {
+    const chatIds = await discoverActiveChatStreams();
+    const metrics = await Promise.all(
+      chatIds.map(chatId => getMessageChunkStreamMetrics(chatId))
+    );
+    
+    return metrics.filter(m => m !== null);
+  } catch (error) {
+    console.error(`❌ Error getting all message chunk stream metrics:`, error);
+    return [];
+  }
 }
 
 /**
@@ -405,17 +506,15 @@ export async function getAllMessageChunkStreamMetrics() {
 export async function cleanupInactiveMessageChunkStreams(chatId: string) {
   try {
     const streamKey = `${getStreamName(chatId)}:stream`;
-    const channelKey = `${getStreamName(chatId)}:channel`;
     
-    // Delete the stream and related keys
-    const deletedKeys = await redis.del(streamKey);
-    await redis.del(channelKey);
+    // Delete the stream
+    const result = await redis.del(streamKey);
     
-    console.log(`🧹 Cleaned up stream for ${chatId}. Removed ${deletedKeys} stream keys`);
-    return { chatId, removedKeys: deletedKeys };
+    console.log(`🧹 Cleaned up stream for chat ${chatId}: ${result} keys deleted`);
+    return result > 0;
   } catch (error) {
-    console.error(`❌ Error during cleanup for ${chatId}:`, error);
-    throw error;
+    console.error(`❌ Error cleaning up message chunk streams for ${chatId}:`, error);
+    return false;
   }
 }
 
@@ -423,15 +522,21 @@ export async function cleanupInactiveMessageChunkStreams(chatId: string) {
  * Clean up all inactive message chunk streams
  */
 export async function cleanupAllInactiveMessageChunkStreams() {
-  const chatIds = await discoverActiveChatStreams();
-  const results = await Promise.all(
-    chatIds.map(chatId => cleanupInactiveMessageChunkStreams(chatId))
-  );
-  
-  const totalRemoved = results.reduce((sum: number, result: any) => sum + result.removedKeys, 0);
-  console.log(`🧹 Total cleanup completed. Removed ${totalRemoved} stream keys across ${results.length} chats`);
-  
-  return { totalChats: results.length, totalRemoved, details: results };
+  try {
+    const chatIds = await discoverActiveChatStreams();
+    let totalCleaned = 0;
+    
+    for (const chatId of chatIds) {
+      const cleaned = await cleanupInactiveMessageChunkStreams(chatId);
+      if (cleaned) totalCleaned++;
+    }
+    
+    console.log(`🧹 Cleaned up ${totalCleaned} inactive message chunk streams`);
+    return totalCleaned;
+  } catch (error) {
+    console.error(`❌ Error cleaning up all inactive message chunk streams:`, error);
+    return 0;
+  }
 }
 
 // Cleanup on process exit
