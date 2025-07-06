@@ -239,6 +239,71 @@ function createBatchedQueue<T>(
   return { add, flush, destroy };
 }
 
+// Redis Stream abstraction
+interface StreamQueueOptions {
+  batchTimeMs?: number;
+  maxBatchSize?: number;
+  expireAfterSeconds?: number;
+}
+
+interface StreamQueue {
+  enqueue: (event: StreamMessage) => Promise<void>;
+  flush: () => Promise<void>;
+  destroy: () => void;
+}
+
+function createStreamQueue(chatId: string, options: StreamQueueOptions = {}): StreamQueue {
+  const { batchTimeMs = 1000, maxBatchSize = 100, expireAfterSeconds = 3600 } = options;
+  
+  const streamKey = `${getStreamName(chatId)}:stream`;
+  let producedEvents = 0;
+  let hasSetExpiration = false;
+
+  // Create batched queue for Redis stream operations
+  const batchedQueue = createBatchedQueue<StreamMessage>(
+    { batchTimeMs, maxBatchSize },
+    async (events: StreamMessage[]) => {
+      // Redis pipeline operation for batching XADD commands
+      const pipeline = redisWriter.pipeline();
+
+      events.forEach(event => {
+        pipeline.xadd(
+          streamKey,
+          // TODO: we should save data to db before trimming from stream
+          // 'MAXLEN', '~', '10000', // Keep approximately N most recent messages
+          '*', // Let Redis generate the ID automatically
+          'event', JSON.stringify(event)
+        );
+      });
+
+      // Execute all XADD operations in a single network round-trip
+      await pipeline.exec();
+
+      // Set expiration on first batch (stream creation)
+      if (!hasSetExpiration) {
+        await redisWriter.expire(streamKey, expireAfterSeconds);
+        console.log(`⏰ Set ${expireAfterSeconds}s expiration on stream: ${streamKey}`);
+        hasSetExpiration = true;
+      }
+
+      producedEvents += events.length;
+      console.log(`📝 Batched ${events.length} events for chat ${chatId} (total: ${producedEvents})`);
+    }
+  );
+
+  return {
+    enqueue: async (event: StreamMessage) => {
+      await batchedQueue.add(event);
+    },
+    flush: async () => {
+      await batchedQueue.flush();
+    },
+    destroy: () => {
+      batchedQueue.destroy();
+    }
+  };
+}
+
 // Utility functions
 
 /**
@@ -249,52 +314,14 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
   // Kick off producer asynchronously (fire-and-forget)
   (async () => {
-    const streamName = getStreamName(chatId);
-    const streamKey = `${streamName}:stream`;
+    // Create Redis stream queue with abstraction
+    const streamQueue = createStreamQueue(chatId, {
+      batchTimeMs: 1000,
+      maxBatchSize: 100,
+      expireAfterSeconds: 3600
+    });
 
-    let producedEvents = 0; // local counter only for logging
-
-    // Create batched queue for Redis stream operations
-    const streamQueue = createBatchedQueue<StreamMessage>(
-      { batchTimeMs: 1000, maxBatchSize: 100 },
-      async (events: StreamMessage[]) => {
-        // Redis pipeline operation for batching XADD commands
-        const pipeline = redisWriter.pipeline();
-
-        events.forEach(event => {
-          pipeline.xadd(
-            streamKey,
-             // TODO: we should save data to db before trimming from stream
-            // 'MAXLEN', '~', '10000', // Keep approximately N most recent messages
-            '*', // Let Redis generate the ID automatically
-            'event', JSON.stringify(event)
-          );
-        });
-
-        // Execute all XADD operations in a single network round-trip
-        await pipeline.exec();
-
-        // Set expiration on first batch (stream creation)
-        if (producedEvents === 0) {
-          await redisWriter.expire(streamKey, 3600); // Expire in 1 hour (3600 seconds)
-          console.log(`⏰ Set 1-hour expiration on stream: ${streamKey}`);
-        }
-
-        producedEvents += events.length;
-        console.log(`📝 Batched ${events.length} events for chat ${chatId} (total: ${producedEvents})`);
-      }
-    );
-
-    // Simple enqueue function using the batched queue
-    const enqueue = async (event: StreamMessage) => {
-      await streamQueue.add(event);
-      // await redisWriter.xadd(
-      //   streamKey,
-      //   'MAXLEN', '~', '1000', // Keep approximately 1000 most recent messages
-      //   '*', // Let Redis generate the ID automatically
-      //   'event', JSON.stringify(event)
-      // );
-    };
+    const { enqueue, flush, destroy } = streamQueue;
 
     // user message
     const userMessage: MessageType = {
@@ -352,15 +379,15 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
 
     // Flush any remaining events in the buffer
-    await streamQueue.flush();
+    await flush();
 
     // Clean up the queue
-    streamQueue.destroy();
+    destroy();
 
     // Clean up stop flag if it was set
     await redisUtil.del(stopKey);
 
-    console.log(`🎬 Streamed ${producedEvents} events for chat ${chatId}`);
+    console.log(`🎬 Streaming completed for chat ${chatId}`);
   })();
 
   // immediately return chatId so caller isn't blocked
