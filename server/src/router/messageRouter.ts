@@ -6,6 +6,7 @@ import { createAIProviderFromModel, type AIMessage, type AIProvider } from "../l
 import { ErrorCode, STREAM_ERROR_MESSAGES } from "../lib/errors";
 import { createIsolatedStream, type IsolatedStreamCallbacks } from "../lib/isolated-stream";
 import { cacheHelpers } from "../lib/redis";
+import { createStreamQueue } from "../lib/redis-message";
 import { createStreamId, streamAbortRegistry } from "../lib/stream-abort-registry";
 import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
@@ -235,8 +236,32 @@ export const messageRouter = router({
         // Create streaming process function
         const streamAIResponse = async ({ enqueue, close, error }: IsolatedStreamCallbacks<StreamMessage>) => {
           let aiProvider: undefined | AIProvider;
+          let redisStreamQueue: ReturnType<typeof createStreamQueue> | null = null;
 
           try {
+            // Create Redis stream queue for persistent streaming (allows other clients to join)
+            redisStreamQueue = createStreamQueue(chatId, {
+              batchTimeMs: 1000,
+              maxBatchSize: 100,
+              expireAfterSeconds: 3600 // 1 hour
+            });
+
+            // Helper function to enqueue to both current stream and Redis stream
+            const dualEnqueue = async (message: StreamMessage) => {
+              // Enqueue to current client stream (real-time for initiating client)
+              enqueue(message);
+              
+              // Enqueue to Redis stream (persistent for other clients/page refreshes)
+              await redisStreamQueue!.enqueue(message);
+            };
+
+            // First, enqueue the user message to Redis stream
+            await redisStreamQueue.enqueue({
+              type: "userMessage",
+              message: userMessage as MessageType,
+              chatId: chatId,
+            });
+
             // Check if already aborted before starting
             if (abortController.signal.aborted) {
               error(new TRPCError({
@@ -246,8 +271,8 @@ export const messageRouter = router({
               return;
             }
 
-            // Emit the initial AI message
-            enqueue({
+            // Emit the initial AI message to both streams
+            await dualEnqueue({
               type: "aiMessageStart",
               message: aiMessage as MessageType,
               chatId: chatId,
@@ -306,7 +331,7 @@ export const messageRouter = router({
 
               if (chunk.content && !chunk.isComplete) {
                 fullContent += chunk.content;
-                enqueue({
+                await dualEnqueue({
                   type: "aiMessageChunk",
                   messageId: aiMessage.id,
                   chunk: chunk.content,
@@ -328,12 +353,15 @@ export const messageRouter = router({
               },
             });
 
-            // Emit the final complete message
-            enqueue({
+            // Emit the final complete message to both streams
+            await dualEnqueue({
               type: "aiMessageComplete",
               message: updatedAiMessage as MessageType,
               chatId: chatId,
             });
+
+            // Flush any remaining Redis stream events
+            await redisStreamQueue.destroy();
 
             // Invalidate chat cache - this will always run even if client disconnects
             await Promise.all([
@@ -382,8 +410,13 @@ export const messageRouter = router({
               }
             }
           } finally {
-            // Always cleanup the stream from registry when done
+            // Always cleanup both streams when done
             streamAbortRegistry.cleanup(streamId);
+            
+            // Cleanup Redis stream queue
+            if (redisStreamQueue) {
+              redisStreamQueue.destroy();
+            }
           }
         };
 

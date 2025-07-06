@@ -85,7 +85,7 @@ export function createBatchedQueue<T>(
 // Redis Stream abstraction
 export function createStreamQueue(chatId: string, options: StreamQueueOptions = {}): StreamQueue {
   const { batchTimeMs = 1000, maxBatchSize = 100, expireAfterSeconds = 3600 } = options;
-  
+
   const streamKey = `${getStreamName(chatId)}:stream`;
   let producedEvents = 0;
   let hasSetExpiration = false;
@@ -129,7 +129,7 @@ export function createStreamQueue(chatId: string, options: StreamQueueOptions = 
     flush: async () => {
       await batchedQueue.flush();
     },
-    destroy: () => {
+    destroy: async () => {
       batchedQueue.destroy();
     }
   };
