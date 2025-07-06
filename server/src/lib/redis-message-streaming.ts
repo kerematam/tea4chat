@@ -179,7 +179,6 @@ function createBatchedQueue<T>(
   let isDestroyed = false;
 
   const executeBatch = async () => {
-    console.log("EXECUTE BATCH")
     if (itemBuffer.length === 0 || isDestroyed) return;
 
     const itemsToFlush = [...itemBuffer];
@@ -198,7 +197,7 @@ function createBatchedQueue<T>(
     // Fixed interval throttling - flush every batchTimeMs regardless of when items are added
     flushInterval = setInterval(async () => {
       if (isDestroyed) return;
-      
+
       // Only flush if there are items in the buffer
       if (itemBuffer.length > 0) {
         await executeBatch();
@@ -257,7 +256,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
     // Create batched queue for Redis stream operations
     const streamQueue = createBatchedQueue<StreamMessage>(
-      { batchTimeMs: 1000, maxBatchSize: 100 },
+      { batchTimeMs: 2000, maxBatchSize: 100 },
       async (events: StreamMessage[]) => {
         // Redis pipeline operation for batching XADD commands
         const pipeline = redisWriter.pipeline();
@@ -454,46 +453,16 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
     // Phase 1: Read all historical messages from the beginning
     console.log(`📚 Reading historical messages for chat ${chatId}`);
 
-    while (true) {
-      const messages = await redisReader.xread('STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
-
-      if (!messages || messages.length === 0) {
-        // No more historical messages, switch to real-time
-        break;
-      }
-
-      const streamData = messages[0];
-      if (streamData) {
-        const [, entries] = streamData;
-
-        for (const [messageId, fields] of entries) {
-          const eventData = fields[1]; // 'event' field value
-          if (eventData) {
-            const event = JSON.parse(eventData) as StreamMessage;
-            console.log(`📺 Historical event for ${chatId}: ${event.type}`);
-
-            yield event;
-            lastSeenId = messageId; // Update last seen ID
-
-            if (event.type === 'aiMessageComplete') {
-              console.log(`🏁 Historical stream completed for ${chatId}`);
-              streamCompleted = true;
-              return;
-            }
-          }
-        }
-      }
-    }
-
     // Phase 2: Real-time consumption using XREAD BLOCK
     console.log(`🔴 Switching to real-time mode for chat ${chatId}`);
 
     while (!streamCompleted) {
-      console.log("#########################", lastSeenId, new Date().toISOString())
-      const messages = await redisReader.xread('BLOCK', '5000', 'STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
+      const messages = await redisReader.xread(
+        'COUNT', "500", // read 500 messages at a time to prevent memory bloat
+        'BLOCK', "30000", // drop the connection if no messages are available for 30 seconds
+        'STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
 
       if (!messages || messages.length === 0) {
-        // Timeout occurred, check if we should continue
         continue;
       }
 
