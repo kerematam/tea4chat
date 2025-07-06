@@ -173,12 +173,13 @@ function createBatchedQueue<T>(
   flushHandler: (items: T[]) => Promise<void>
 ): BatchedQueue<T> {
   const { batchTimeMs = 50, maxBatchSize = 10 } = options;
-  
+
   let itemBuffer: T[] = [];
-  let flushTimeout: NodeJS.Timeout | null = null;
+  let flushInterval: NodeJS.Timeout | null = null;
   let isDestroyed = false;
 
   const executeBatch = async () => {
+    console.log("EXECUTE BATCH")
     if (itemBuffer.length === 0 || isDestroyed) return;
 
     const itemsToFlush = [...itemBuffer];
@@ -191,13 +192,18 @@ function createBatchedQueue<T>(
     }
   };
 
-  const scheduleFlush = () => {
-    if (isDestroyed) return;
-    
-    if (flushTimeout) {
-      clearTimeout(flushTimeout);
-    }
-    flushTimeout = setTimeout(executeBatch, batchTimeMs);
+  const startThrottledFlush = () => {
+    if (isDestroyed || flushInterval) return;
+
+    // Fixed interval throttling - flush every batchTimeMs regardless of when items are added
+    flushInterval = setInterval(async () => {
+      if (isDestroyed) return;
+      
+      // Only flush if there are items in the buffer
+      if (itemBuffer.length > 0) {
+        await executeBatch();
+      }
+    }, batchTimeMs);
   };
 
   const add = async (item: T): Promise<void> => {
@@ -207,31 +213,26 @@ function createBatchedQueue<T>(
 
     itemBuffer.push(item);
 
-    // Flush immediately if buffer is full, otherwise schedule flush
+    // Start the throttled flush interval if not already running
+    if (!flushInterval) {
+      startThrottledFlush();
+    }
+
+    // Flush immediately if buffer is full (bypass throttling for full buffers)
     if (itemBuffer.length >= maxBatchSize) {
-      if (flushTimeout) {
-        clearTimeout(flushTimeout);
-        flushTimeout = null;
-      }
       await executeBatch();
-    } else {
-      scheduleFlush();
     }
   };
 
   const flush = async (): Promise<void> => {
-    if (flushTimeout) {
-      clearTimeout(flushTimeout);
-      flushTimeout = null;
-    }
     await executeBatch();
   };
 
   const destroy = (): void => {
     isDestroyed = true;
-    if (flushTimeout) {
-      clearTimeout(flushTimeout);
-      flushTimeout = null;
+    if (flushInterval) {
+      clearInterval(flushInterval);
+      flushInterval = null;
     }
     itemBuffer = [];
   };
@@ -256,11 +257,11 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
     // Create batched queue for Redis stream operations
     const streamQueue = createBatchedQueue<StreamMessage>(
-      { batchTimeMs: 1000, maxBatchSize: 10 },
+      { batchTimeMs: 1000, maxBatchSize: 100 },
       async (events: StreamMessage[]) => {
         // Redis pipeline operation for batching XADD commands
         const pipeline = redisWriter.pipeline();
-        
+
         events.forEach(event => {
           pipeline.xadd(
             streamKey,
@@ -280,13 +281,13 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
     // Simple enqueue function using the batched queue
     const enqueue = async (event: StreamMessage) => {
-      // await streamQueue.add(event);
-      await redisWriter.xadd(
-        streamKey,
-        'MAXLEN', '~', '1000', // Keep approximately 1000 most recent messages
-        '*', // Let Redis generate the ID automatically
-        'event', JSON.stringify(event)
-      );
+      await streamQueue.add(event);
+      // await redisWriter.xadd(
+      //   streamKey,
+      //   'MAXLEN', '~', '1000', // Keep approximately 1000 most recent messages
+      //   '*', // Let Redis generate the ID automatically
+      //   'event', JSON.stringify(event)
+      // );
     };
 
     // user message
@@ -385,21 +386,21 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
     const chatIds = await discoverActiveChatStreams();
     for (const chatId of chatIds) {
       const streamKey = `${getStreamName(chatId)}:stream`;
-      
+
       // Check key type first to handle transition from sorted sets
       const keyType = await redisUtil.type(streamKey);
-      
+
       if (keyType === 'zset') {
         // Old sorted set key - migrate to stream
         console.log(`⚠️ Found old sorted set key for chat ${chatId}, migrating to stream...`);
-        
+
         try {
           // Get all events from sorted set
           const events = await redisUtil.zrange(streamKey, 0, -1);
-          
+
           // Delete the old sorted set
           await redisUtil.del(streamKey);
-          
+
           // Add events to new stream
           if (events.length > 0) {
             const pipeline = redisWriter.pipeline();
@@ -407,7 +408,7 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
               pipeline.xadd(streamKey, '*', 'event', eventStr);
             });
             await pipeline.exec();
-            
+
             console.log(`✅ Migrated ${events.length} events from sorted set to stream for chat ${chatId}`);
           }
         } catch (migrationError) {
@@ -424,7 +425,7 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
         await redisUtil.del(streamKey);
         continue;
       }
-      
+
       // Now we can safely use stream operations
       const streamLength = await redisUtil.xlen(streamKey);
       if (streamLength > 0) {
@@ -448,32 +449,32 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
   const streamKey = `${getStreamName(chatId)}:stream`;
   let lastSeenId = '0'; // Start from beginning
   let streamCompleted = false;
-  
+
   try {
     // Phase 1: Read all historical messages from the beginning
     console.log(`📚 Reading historical messages for chat ${chatId}`);
-    
+
     while (true) {
       const messages = await redisReader.xread('STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
-      
+
       if (!messages || messages.length === 0) {
         // No more historical messages, switch to real-time
         break;
       }
-      
+
       const streamData = messages[0];
       if (streamData) {
         const [, entries] = streamData;
-        
+
         for (const [messageId, fields] of entries) {
           const eventData = fields[1]; // 'event' field value
           if (eventData) {
             const event = JSON.parse(eventData) as StreamMessage;
             console.log(`📺 Historical event for ${chatId}: ${event.type}`);
-            
+
             yield event;
             lastSeenId = messageId; // Update last seen ID
-            
+
             if (event.type === 'aiMessageComplete') {
               console.log(`🏁 Historical stream completed for ${chatId}`);
               streamCompleted = true;
@@ -483,35 +484,32 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
         }
       }
     }
-    
+
     // Phase 2: Real-time consumption using XREAD BLOCK
     console.log(`🔴 Switching to real-time mode for chat ${chatId}`);
-    
+
     while (!streamCompleted) {
-      // Block for up to 5 seconds waiting for new messages
       console.log("#########################", lastSeenId, new Date().toISOString())
-      const messages = await redisReader.xread('BLOCK', '1000', 'STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
-    
-      console.log(`🎬 while loop Messages: ${messages}`);
-      
+      const messages = await redisReader.xread('BLOCK', '5000', 'STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
+
       if (!messages || messages.length === 0) {
         // Timeout occurred, check if we should continue
         continue;
       }
-      
+
       const streamData = messages[0];
       if (streamData) {
         const [, entries] = streamData;
-        
+
         for (const [messageId, fields] of entries) {
           const eventData = fields[1]; // 'event' field value
           if (eventData) {
             const event = JSON.parse(eventData) as StreamMessage;
             console.log(`📨 Real-time event for ${chatId}: ${event.type}`);
-            
+
             yield event;
             lastSeenId = messageId; // Update last seen ID
-            
+
             if (event.type === 'aiMessageComplete') {
               console.log(`🏁 Real-time stream completed for ${chatId}`);
               streamCompleted = true;
@@ -521,7 +519,7 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
         }
       }
     }
-    
+
   } catch (error) {
     console.error(`❌ Error in stream subscription for ${chatId}:`, error);
   } finally {
@@ -535,21 +533,21 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
 export async function getMessageChunkStreamMetrics(chatId: string) {
   try {
     const streamKey = `${getStreamName(chatId)}:stream`;
-    
+
     // Check key type first to handle transition from sorted sets
     const keyType = await redisUtil.type(streamKey);
-    
+
     if (keyType === 'zset') {
       // Old sorted set key - migrate to stream or skip
       console.log(`⚠️ Found old sorted set key for chat ${chatId}, migrating to stream...`);
-      
+
       try {
         // Get all events from sorted set
         const events = await redisUtil.zrange(streamKey, 0, -1);
-        
+
         // Delete the old sorted set
         await redisUtil.del(streamKey);
-        
+
         // Add events to new stream
         if (events.length > 0) {
           const pipeline = redisWriter.pipeline();
@@ -557,7 +555,7 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
             pipeline.xadd(streamKey, '*', 'event', eventStr);
           });
           await pipeline.exec();
-          
+
           console.log(`✅ Migrated ${events.length} events from sorted set to stream for chat ${chatId}`);
         }
       } catch (migrationError) {
@@ -575,20 +573,20 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
       await redisUtil.del(streamKey);
       return null;
     }
-    
+
     // Now we can safely use stream operations
     const streamLength = await redisUtil.xlen(streamKey);
-    
+
     let firstId = null;
     let lastId = null;
     let oldestTimestamp = null;
     let newestTimestamp = null;
-    
+
     if (streamLength > 0) {
       // Get first and last message IDs
       const firstMessages = await redisUtil.xrange(streamKey, '-', '+', 'COUNT', '1');
       const lastMessages = await redisUtil.xrevrange(streamKey, '+', '-', 'COUNT', '1');
-      
+
       if (firstMessages.length > 0 && firstMessages[0]) {
         firstId = firstMessages[0][0];
         // Extract timestamp from stream ID (format: timestamp-sequence)
@@ -597,7 +595,7 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
           oldestTimestamp = parseInt(timestampPart);
         }
       }
-      
+
       if (lastMessages.length > 0 && lastMessages[0]) {
         lastId = lastMessages[0][0];
         const timestampPart = lastId.split('-')[0];
@@ -606,7 +604,7 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
         }
       }
     }
-    
+
     return {
       chatId,
       streamKey,
@@ -632,7 +630,7 @@ export async function getAllMessageChunkStreamMetrics() {
     const metrics = await Promise.all(
       chatIds.map(chatId => getMessageChunkStreamMetrics(chatId))
     );
-    
+
     return metrics.filter(m => m !== null);
   } catch (error) {
     console.error(`❌ Error getting all message chunk stream metrics:`, error);
@@ -646,10 +644,10 @@ export async function getAllMessageChunkStreamMetrics() {
 export async function cleanupInactiveMessageChunkStreams(chatId: string) {
   try {
     const streamKey = `${getStreamName(chatId)}:stream`;
-    
+
     // Delete the stream
     const result = await redisUtil.del(streamKey);
-    
+
     console.log(`🧹 Cleaned up stream for chat ${chatId}: ${result} keys deleted`);
     return result > 0;
   } catch (error) {
@@ -665,12 +663,12 @@ export async function cleanupAllInactiveMessageChunkStreams() {
   try {
     const chatIds = await discoverActiveChatStreams();
     let totalCleaned = 0;
-    
+
     for (const chatId of chatIds) {
       const cleaned = await cleanupInactiveMessageChunkStreams(chatId);
       if (cleaned) totalCleaned++;
     }
-    
+
     console.log(`🧹 Cleaned up ${totalCleaned} inactive message chunk streams`);
     return totalCleaned;
   } catch (error) {
@@ -682,10 +680,10 @@ export async function cleanupAllInactiveMessageChunkStreams() {
 // Cleanup on process exit
 const cleanup = async () => {
   console.log('🧹 Cleaning up message chunk stream resources...');
-  
+
   // Close the shared Redis connection
   await redis.quit();
-  
+
   console.log('🧹 Redis connection closed');
 };
 
