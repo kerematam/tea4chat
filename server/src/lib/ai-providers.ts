@@ -7,6 +7,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { systemModels } from "../../prisma/seed";
 
 // Common types for all providers
 export interface AIMessage {
@@ -45,7 +46,7 @@ export interface AIProviderConfig {
 // Base provider interface
 export interface AIProvider {
   readonly name: string | 'openai' | 'anthropic' | 'mock';
-  readonly model: string | 'gpt-4o' | 'claude-3-5-sonnet-20241022' | 'claude-3-5-haiku-20241022' | 'claude-3-opus-20240229' | 'claude-3-sonnet-20240229' | 'claude-3-haiku-20240307' | 'gpt-4' | 'gpt-4-turbo' | 'gpt-4o-mini' | 'gpt-3.5-turbo' | 'gpt-3.5-turbo-16k';
+  readonly model: string;
   readonly supportedModels: string[];
 
   // Non-streaming methods
@@ -63,16 +64,7 @@ export interface AIProvider {
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai";
   readonly model = "gpt-4o";
-  // INFO: check prisma/seed.ts for supported models
-  readonly supportedModels = [
-    "gpt-4",
-    "gpt-4-turbo",
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-3.5-turbo",
-    "gpt-3.5-turbo-16k"
-  ];
-
+  readonly supportedModels = systemModels.filter(model => model.provider === "openai").map(model => model.name);
   private client: OpenAI;
   private defaultConfig: Partial<AIProviderConfig> = {
     maxTokens: 4096,
@@ -174,13 +166,7 @@ export class AnthropicProvider implements AIProvider {
   readonly name = "anthropic";
   readonly model = "claude-3-5-sonnet-20241022";
   // INFO: check prisma/seed.ts for supported models
-  readonly supportedModels = [
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307"
-  ];
+  readonly supportedModels = systemModels.filter(model => model.provider === "anthropic").map(model => model.name);
 
   private client: Anthropic;
   private defaultConfig: Partial<AIProviderConfig> = {
@@ -196,6 +182,11 @@ export class AnthropicProvider implements AIProvider {
   }
 
   validateConfig(config: AIProviderConfig): boolean {
+    console.log("validateConfig", config)
+    console.log("supportedModels", this.supportedModels)
+    console.log("config.model", config.model)
+    console.log("config.apiKey", config.apiKey)
+    console.log("this.supportedModels.includes(config.model)", this.supportedModels.includes(config.model))
     return !!(config.apiKey && config.model && this.supportedModels.includes(config.model));
   }
 
@@ -294,13 +285,7 @@ export class AnthropicProvider implements AIProvider {
 export class MockProvider implements AIProvider {
   readonly name = "mock";
   readonly model = "mock-fast"; // default model for Mock provider
-  readonly supportedModels = [
-    "mock-fast",
-    "mock-slow",
-    "mock-verbose",
-    "mock-concise",
-    "mock-creative"
-  ];
+  readonly supportedModels = systemModels.filter(model => model.provider === "mock").map(model => model.name);
 
   private defaultConfig: Partial<AIProviderConfig> = {
     maxTokens: 150,
@@ -530,22 +515,17 @@ export function createAIProviderFromModel(
   let apiKey: string;
 
   if (model.provider === "mock") {
-    // Mock provider doesn't need a real API key
     apiKey = "mock-api-key";
   } else if (model.provider === "anthropic") {
-    const key = userSettings.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
-    if (!key.trim()) {
-      throw new Error(`${model.provider} API key not configured`);
-    }
-    apiKey = key;
+    apiKey = userSettings.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
   } else if (model.provider === "openai") {
-    const key = userSettings.openaiApiKey ?? process.env.OPENAI_API_KEY ?? "";
-    if (!key.trim()) {
-      throw new Error(`${model.provider} API key not configured`);
-    }
-    apiKey = key;
+    apiKey = userSettings.openaiApiKey ?? process.env.OPENAI_API_KEY ?? "";
   } else {
     throw new Error(`Unknown provider: ${model.provider}`);
+  }
+
+  if (!apiKey.trim()) {
+    throw new Error(`${model.provider} API key not configured`);
   }
 
   const config: AIProviderConfig = {
