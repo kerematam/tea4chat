@@ -13,7 +13,44 @@
 import { randomBytes } from 'crypto';
 import { redis } from './redis';
 
-// Handle Redis connection events for this instance
+// Create separate Redis clients for optimal performance
+// Writer client - dedicated for XADD operations (fast, non-blocking)
+const redisWriter = redis.duplicate();
+
+// Reader client - dedicated for XREAD operations (can block without affecting writes)
+const redisReader = redis.duplicate();
+
+// Utility client - for general operations like SCAN, TYPE, DEL
+const redisUtil = redis.duplicate();
+
+// Handle Redis connection events for writer client
+redisWriter.on('connect', () => {
+  console.log('Redis Writer client connected successfully');
+});
+
+redisWriter.on('error', (error) => {
+  console.error('Redis Writer client connection error:', error);
+});
+
+// Handle Redis connection events for reader client
+redisReader.on('connect', () => {
+  console.log('Redis Reader client connected successfully');
+});
+
+redisReader.on('error', (error) => {
+  console.error('Redis Reader client connection error:', error);
+});
+
+// Handle Redis connection events for utility client
+redisUtil.on('connect', () => {
+  console.log('Redis Utility client connected successfully');
+});
+
+redisUtil.on('error', (error) => {
+  console.error('Redis Utility client connection error:', error);
+});
+
+// Keep original for backwards compatibility (will be deprecated)
 redis.on('connect', () => {
   console.log('Redis Message Streaming connected successfully');
 });
@@ -69,7 +106,7 @@ const discoverActiveChatStreams = async (): Promise<string[]> => {
     let cursor = '0';
     do {
       // SCAN cursor MATCH pattern COUNT 100
-      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', '100');
+      const [nextCursor, keys] = await redisUtil.scan(cursor, 'MATCH', pattern, 'COUNT', '100');
       cursor = nextCursor;
 
       chatIds.push(
@@ -119,11 +156,88 @@ const splitIntoChunks = (content: string, numChunks: number): string[] => {
   return chunks;
 };
 
+// Generic batching abstraction
+interface BatchedQueueOptions {
+  batchTimeMs?: number;
+  maxBatchSize?: number;
+}
 
+interface BatchedQueue<T> {
+  add: (item: T) => Promise<void>;
+  flush: () => Promise<void>;
+  destroy: () => void;
+}
 
+function createBatchedQueue<T>(
+  options: BatchedQueueOptions,
+  flushHandler: (items: T[]) => Promise<void>
+): BatchedQueue<T> {
+  const { batchTimeMs = 50, maxBatchSize = 10 } = options;
+  
+  let itemBuffer: T[] = [];
+  let flushTimeout: NodeJS.Timeout | null = null;
+  let isDestroyed = false;
 
+  const executeBatch = async () => {
+    if (itemBuffer.length === 0 || isDestroyed) return;
 
+    const itemsToFlush = [...itemBuffer];
+    itemBuffer = [];
 
+    try {
+      await flushHandler(itemsToFlush);
+    } catch (error) {
+      console.error('❌ Batch execution error:', error);
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (isDestroyed) return;
+    
+    if (flushTimeout) {
+      clearTimeout(flushTimeout);
+    }
+    flushTimeout = setTimeout(executeBatch, batchTimeMs);
+  };
+
+  const add = async (item: T): Promise<void> => {
+    if (isDestroyed) {
+      throw new Error('BatchedQueue has been destroyed');
+    }
+
+    itemBuffer.push(item);
+
+    // Flush immediately if buffer is full, otherwise schedule flush
+    if (itemBuffer.length >= maxBatchSize) {
+      if (flushTimeout) {
+        clearTimeout(flushTimeout);
+        flushTimeout = null;
+      }
+      await executeBatch();
+    } else {
+      scheduleFlush();
+    }
+  };
+
+  const flush = async (): Promise<void> => {
+    if (flushTimeout) {
+      clearTimeout(flushTimeout);
+      flushTimeout = null;
+    }
+    await executeBatch();
+  };
+
+  const destroy = (): void => {
+    isDestroyed = true;
+    if (flushTimeout) {
+      clearTimeout(flushTimeout);
+      flushTimeout = null;
+    }
+    itemBuffer = [];
+  };
+
+  return { add, flush, destroy };
+}
 
 // Utility functions
 
@@ -140,22 +254,39 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
     let producedEvents = 0; // local counter only for logging
 
-    // Pure Redis Streams implementation - single data structure
-    const enqueue = async (event: StreamMessage) => {
-      try {
-        // Use Redis Streams with automatic ID generation and optional trimming
-        await redis.xadd(
-          streamKey,
-          'MAXLEN', '~', '1000', // Keep approximately 1000 most recent messages
-          '*', // Let Redis generate the ID automatically
-          'event', JSON.stringify(event)
-        );
+    // Create batched queue for Redis stream operations
+    const streamQueue = createBatchedQueue<StreamMessage>(
+      { batchTimeMs: 1000, maxBatchSize: 10 },
+      async (events: StreamMessage[]) => {
+        // Redis pipeline operation for batching XADD commands
+        const pipeline = redisWriter.pipeline();
+        
+        events.forEach(event => {
+          pipeline.xadd(
+            streamKey,
+            'MAXLEN', '~', '1000', // Keep approximately 1000 most recent messages
+            '*', // Let Redis generate the ID automatically
+            'event', JSON.stringify(event)
+          );
+        });
 
-        producedEvents += 1;
-        console.log(`📝 Streamed event ${event.type} for chat ${chatId} (total: ${producedEvents})`);
-      } catch (err: unknown) {
-        console.error('❌ stream enqueue error', err);
+        // Execute all XADD operations in a single network round-trip
+        await pipeline.exec();
+
+        producedEvents += events.length;
+        console.log(`📝 Batched ${events.length} events for chat ${chatId} (total: ${producedEvents})`);
       }
+    );
+
+    // Simple enqueue function using the batched queue
+    const enqueue = async (event: StreamMessage) => {
+      // await streamQueue.add(event);
+      await redisWriter.xadd(
+        streamKey,
+        'MAXLEN', '~', '1000', // Keep approximately 1000 most recent messages
+        '*', // Let Redis generate the ID automatically
+        'event', JSON.stringify(event)
+      );
     };
 
     // user message
@@ -188,7 +319,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
     for (let i = 0; i < chunks.length; i++) {
       // Check stop flag before producing next chunk
-      if (await redis.exists(stopKey)) {
+      if (await redisUtil.exists(stopKey)) {
         console.log(`🛑 Stop requested for chat ${chatId}. Halting stream at chunk ${i}.`);
         break;
       }
@@ -213,8 +344,14 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     const completedMessage: MessageType = { ...aiMessage, content: accumulated, text: accumulated };
     await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
 
+    // Flush any remaining events in the buffer
+    await streamQueue.flush();
+
+    // Clean up the queue
+    streamQueue.destroy();
+
     // Clean up stop flag if it was set
-    await redis.del(stopKey);
+    await redisUtil.del(stopKey);
 
     console.log(`🎬 Streamed ${producedEvents} events for chat ${chatId}`);
   })();
@@ -228,7 +365,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
  */
 export async function stopMessageChunkStream(chatId: string): Promise<boolean> {
   try {
-    await redis.set(`stop-stream:${chatId}`, '1', 'EX', 60 * 5); // auto-expire in 5 minutes
+    await redisUtil.set(`stop-stream:${chatId}`, '1', 'EX', 60 * 5); // auto-expire in 5 minutes
     console.log(`🛑 Stop flag set for chat: ${chatId}`);
     return true;
   } catch (error) {
@@ -250,7 +387,7 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
       const streamKey = `${getStreamName(chatId)}:stream`;
       
       // Check key type first to handle transition from sorted sets
-      const keyType = await redis.type(streamKey);
+      const keyType = await redisUtil.type(streamKey);
       
       if (keyType === 'zset') {
         // Old sorted set key - migrate to stream
@@ -258,14 +395,14 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
         
         try {
           // Get all events from sorted set
-          const events = await redis.zrange(streamKey, 0, -1);
+          const events = await redisUtil.zrange(streamKey, 0, -1);
           
           // Delete the old sorted set
-          await redis.del(streamKey);
+          await redisUtil.del(streamKey);
           
           // Add events to new stream
           if (events.length > 0) {
-            const pipeline = redis.pipeline();
+            const pipeline = redisWriter.pipeline();
             events.forEach(eventStr => {
               pipeline.xadd(streamKey, '*', 'event', eventStr);
             });
@@ -284,12 +421,12 @@ export async function getActiveMessageChunkStreams(): Promise<{ streamId: string
       } else if (keyType !== 'stream') {
         // Key exists but wrong type and not a sorted set
         console.log(`⚠️ Key ${streamKey} has unexpected type: ${keyType}, deleting...`);
-        await redis.del(streamKey);
+        await redisUtil.del(streamKey);
         continue;
       }
       
       // Now we can safely use stream operations
-      const streamLength = await redis.xlen(streamKey);
+      const streamLength = await redisUtil.xlen(streamKey);
       if (streamLength > 0) {
         result.push({ streamId: chatId, chatId, jobId: streamKey });
       }
@@ -317,7 +454,7 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
     console.log(`📚 Reading historical messages for chat ${chatId}`);
     
     while (true) {
-      const messages = await redis.xread('STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
+      const messages = await redisReader.xread('STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
       
       if (!messages || messages.length === 0) {
         // No more historical messages, switch to real-time
@@ -352,7 +489,10 @@ export async function* subscribeToMessageChunkStream(chatId: string): AsyncGener
     
     while (!streamCompleted) {
       // Block for up to 5 seconds waiting for new messages
-      const messages = await redis.xread('BLOCK', '5000', 'STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
+      console.log("#########################", lastSeenId, new Date().toISOString())
+      const messages = await redisReader.xread('BLOCK', '1000', 'STREAMS', streamKey, lastSeenId) as Array<[string, Array<[string, string[]]>]> | null;
+    
+      console.log(`🎬 while loop Messages: ${messages}`);
       
       if (!messages || messages.length === 0) {
         // Timeout occurred, check if we should continue
@@ -397,7 +537,7 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
     const streamKey = `${getStreamName(chatId)}:stream`;
     
     // Check key type first to handle transition from sorted sets
-    const keyType = await redis.type(streamKey);
+    const keyType = await redisUtil.type(streamKey);
     
     if (keyType === 'zset') {
       // Old sorted set key - migrate to stream or skip
@@ -405,14 +545,14 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
       
       try {
         // Get all events from sorted set
-        const events = await redis.zrange(streamKey, 0, -1);
+        const events = await redisUtil.zrange(streamKey, 0, -1);
         
         // Delete the old sorted set
-        await redis.del(streamKey);
+        await redisUtil.del(streamKey);
         
         // Add events to new stream
         if (events.length > 0) {
-          const pipeline = redis.pipeline();
+          const pipeline = redisWriter.pipeline();
           events.forEach(eventStr => {
             pipeline.xadd(streamKey, '*', 'event', eventStr);
           });
@@ -423,7 +563,7 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
       } catch (migrationError) {
         console.error(`❌ Error migrating sorted set for chat ${chatId}:`, migrationError);
         // If migration fails, just delete the old key
-        await redis.del(streamKey);
+        await redisUtil.del(streamKey);
         return null;
       }
     } else if (keyType === 'none') {
@@ -432,12 +572,12 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
     } else if (keyType !== 'stream') {
       // Key exists but wrong type and not a sorted set
       console.log(`⚠️ Key ${streamKey} has unexpected type: ${keyType}, deleting...`);
-      await redis.del(streamKey);
+      await redisUtil.del(streamKey);
       return null;
     }
     
     // Now we can safely use stream operations
-    const streamLength = await redis.xlen(streamKey);
+    const streamLength = await redisUtil.xlen(streamKey);
     
     let firstId = null;
     let lastId = null;
@@ -446,8 +586,8 @@ export async function getMessageChunkStreamMetrics(chatId: string) {
     
     if (streamLength > 0) {
       // Get first and last message IDs
-      const firstMessages = await redis.xrange(streamKey, '-', '+', 'COUNT', '1');
-      const lastMessages = await redis.xrevrange(streamKey, '+', '-', 'COUNT', '1');
+      const firstMessages = await redisUtil.xrange(streamKey, '-', '+', 'COUNT', '1');
+      const lastMessages = await redisUtil.xrevrange(streamKey, '+', '-', 'COUNT', '1');
       
       if (firstMessages.length > 0 && firstMessages[0]) {
         firstId = firstMessages[0][0];
@@ -508,7 +648,7 @@ export async function cleanupInactiveMessageChunkStreams(chatId: string) {
     const streamKey = `${getStreamName(chatId)}:stream`;
     
     // Delete the stream
-    const result = await redis.del(streamKey);
+    const result = await redisUtil.del(streamKey);
     
     console.log(`🧹 Cleaned up stream for chat ${chatId}: ${result} keys deleted`);
     return result > 0;
