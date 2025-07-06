@@ -274,6 +274,12 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
         // Execute all XADD operations in a single network round-trip
         await pipeline.exec();
 
+        // Set expiration on first batch (stream creation)
+        if (producedEvents === 0) {
+          await redisWriter.expire(streamKey, 3600); // Expire in 1 hour (3600 seconds)
+          console.log(`⏰ Set 1-hour expiration on stream: ${streamKey}`);
+        }
+
         producedEvents += events.length;
         console.log(`📝 Batched ${events.length} events for chat ${chatId} (total: ${producedEvents})`);
       }
