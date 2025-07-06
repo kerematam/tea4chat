@@ -15,7 +15,7 @@ import {
   startMessageChunkStream,
   stopMessageChunkStream,
   subscribeToMessageChunkStream
-} from '../lib/redis-message-streaming';
+} from '../lib/redis-message';
 import { withOwnerProcedure } from '../procedures/base';
 
 export const messageStreamRouter = {
