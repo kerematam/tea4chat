@@ -122,14 +122,20 @@ export function createStreamQueue(chatId: string, options: StreamQueueOptions = 
     }
   );
 
+  let start = false
+
   return {
+    // TODO: same chatId is used for all streams. We should use streamId
+    // instead.
     enqueue: async (event: StreamMessage) => {
+      if (!start) {
+        start = true;
+        await redisWriter.del(streamKey);
+      }
       await batchedQueue.add(event);
     },
-    flush: async () => {
+    cleanup: async () => {
       await batchedQueue.flush();
-    },
-    destroy: async () => {
       batchedQueue.destroy();
     }
   };

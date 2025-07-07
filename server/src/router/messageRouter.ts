@@ -361,7 +361,7 @@ export const messageRouter = router({
             });
 
             // Flush any remaining Redis stream events
-            await redisStreamQueue.destroy();
+            await redisStreamQueue.cleanup();
 
             // Invalidate chat cache - this will always run even if client disconnects
             await Promise.all([
@@ -415,7 +415,7 @@ export const messageRouter = router({
             
             // Cleanup Redis stream queue
             if (redisStreamQueue) {
-              redisStreamQueue.destroy();
+              redisStreamQueue.cleanup();
             }
           }
         };

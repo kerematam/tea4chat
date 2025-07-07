@@ -56,8 +56,7 @@ export interface StreamQueueOptions {
 
 export interface StreamQueue {
   enqueue: (event: StreamMessage) => Promise<void>;
-  flush: () => Promise<void>;
-  destroy: () => void;
+  cleanup: () => Promise<void>;
 }
 
 // Stream metrics
