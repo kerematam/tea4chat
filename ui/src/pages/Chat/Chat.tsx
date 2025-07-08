@@ -1,15 +1,16 @@
-import { Box, Container, Fab, Typography, Paper } from "@mui/material";
-import { useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { useInView } from "react-intersection-observer";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import SyncIcon from "@mui/icons-material/Sync";
+import { Box, Container, Fab, Paper, Typography } from "@mui/material";
+import { useEffect, useRef, useState } from "react";
+import { useInView } from "react-intersection-observer";
+import { useNavigate, useParams } from "react-router-dom";
 
+import { useLocation } from "react-router-dom";
 import { ChatTextForm } from "../../components/ChatTextForm/ChatTextForm";
 import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
-import { useLocation } from "react-router-dom";
 
-import { useChatMessages, MessageType } from "../../hooks/useChatMessages";
+import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
 import Landing from "./components/Landing/Landing";
 
 export type SqlTable = {
@@ -54,6 +55,9 @@ const Chat = () => {
     isFetchingNextPage,
     sendMessage,
     isSending,
+    isStreamingActive,
+    isListeningToStream,
+    manualSync,
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
@@ -288,6 +292,38 @@ const Chat = () => {
           }}
         >
           <KeyboardArrowDownIcon />
+        </Fab>
+      )}
+
+      {/* Manual sync button */}
+      {chatId && (
+        <Fab
+          size="small"
+          color={isStreamingActive ? "secondary" : "default"}
+          onClick={manualSync}
+          disabled={isListeningToStream}
+          sx={{
+            position: "absolute",
+            bottom: showScrollButton ? 180 : 120,
+            right: 16,
+            zIndex: 1000,
+            opacity: isStreamingActive ? 1 : 0.7,
+          }}
+          title={
+            isListeningToStream 
+              ? "Syncing..." 
+              : isStreamingActive 
+                ? "Active stream - Click to sync" 
+                : "Manual sync"
+          }
+        >
+          <SyncIcon sx={{ 
+            animation: isListeningToStream ? 'spin 1s linear infinite' : 'none',
+            '@keyframes spin': {
+              '0%': { transform: 'rotate(0deg)' },
+              '100%': { transform: 'rotate(360deg)' },
+            }
+          }} />
         </Fab>
       )}
 

@@ -6,7 +6,7 @@ import { createAIProviderFromModel, type AIMessage, type AIProvider } from "../l
 import { ErrorCode, STREAM_ERROR_MESSAGES } from "../lib/errors";
 import { createIsolatedStream, type IsolatedStreamCallbacks } from "../lib/isolated-stream";
 import { cacheHelpers } from "../lib/redis";
-import { createStreamQueue } from "../lib/redis-message";
+import { createStreamQueue, subscribeToMessageChunkStream } from "../lib/redis-message";
 import { createStreamId, streamAbortRegistry } from "../lib/stream-abort-registry";
 import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
@@ -529,6 +529,21 @@ export const messageRouter = router({
           chatId: streamId.split(':')[0]
         }))
       };
+    }),
+
+  // Listen to Redis message chunk stream for reconnection/page refresh scenarios
+  listenToMessageChunkStream: withOwnerProcedure
+    .input(z.object({
+      chatId: z.string(),
+      fromTimestamp: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      console.log(`🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId}${input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ''}`);
+      
+      // Return the async generator from subscribeToMessageChunkStream with optional timestamp
+      return subscribeToMessageChunkStream(input.chatId, { 
+        // fromTimestamp: input.fromTimestamp 
+      });
     }),
 
 }); 

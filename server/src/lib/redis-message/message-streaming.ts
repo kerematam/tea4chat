@@ -28,7 +28,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
       expireAfterSeconds: 3600
     });
 
-    const { enqueue, flush, destroy } = streamQueue;
+    const { enqueue, cleanup } = streamQueue;
 
     // user message
     const userMessage: MessageType = {
@@ -85,11 +85,8 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     const completedMessage: MessageType = { ...aiMessage, content: accumulated, text: accumulated };
     await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
 
-    // Flush any remaining events in the buffer
-    await flush();
-
     // Clean up the queue
-    destroy();
+    cleanup();
 
     // Clean up stop flag if it was set
     await redisUtil.del(stopKey);
@@ -104,16 +101,32 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 /**
  * Subscribe to message chunk stream events using pure Redis Streams
  */
-export async function* subscribeToMessageChunkStream(chatId: string): AsyncGenerator<StreamMessage, void, unknown> {
+export async function* subscribeToMessageChunkStream(
+  chatId: string, 
+  options?: { fromTimestamp?: string }
+): AsyncGenerator<StreamMessage, void, unknown> {
   console.log(`🎧 Subscribing to Redis Streams for chat: ${chatId}`);
 
   const streamKey = `${getStreamName(chatId)}:stream`;
-  let lastSeenId = '0'; // Start from beginning
+  
+  // Convert fromTimestamp to Redis stream ID if provided
+  let lastSeenId = '0'; // Default: start from beginning
+  if (options?.fromTimestamp) {
+    try {
+      const timestamp = new Date(options.fromTimestamp).getTime();
+      lastSeenId = `${timestamp}-0`; // Convert to Redis stream ID format
+      console.log(`🕐 Starting from timestamp: ${options.fromTimestamp} (Redis ID: ${lastSeenId})`);
+    } catch (error) {
+      console.warn(`⚠️ Invalid fromTimestamp provided: ${options.fromTimestamp}, falling back to start from beginning`);
+      lastSeenId = '0';
+    }
+  }
+  
   let streamCompleted = false;
 
   try {
     // Phase 1: Read all historical messages from the beginning
-    console.log(`📚 Reading historical messages for chat ${chatId}`);
+    console.log(`📚 Reading historical messages for chat ${chatId} from ID: ${lastSeenId}`);
 
     // Phase 2: Real-time consumption using XREAD BLOCK
     console.log(`🔴 Switching to real-time mode for chat ${chatId}`);

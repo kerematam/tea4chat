@@ -1,5 +1,5 @@
-import { Query, QueryClient } from "@tanstack/react-query";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
+import { Query, QueryClient } from "@tanstack/react-query";
 import localforage from "localforage";
 
 // Configure localforage for IndexedDB
@@ -55,11 +55,12 @@ export const persistOptions = {
     shouldDehydrateQuery: (query: Query) => {
       const queryKey = query.queryKey;
 
-      if (Array.isArray(queryKey) && Array.isArray(queryKey[0])) {
-        const [procedure] = queryKey[0];
+      // TODO: Uncomment when resuming streaming development complete
+      // if (Array.isArray(queryKey) && Array.isArray(queryKey[0])) {
+      //   const [procedure] = queryKey[0];
 
-        return procedure === "message";
-      }
+      //   return procedure === "message";
+      // }
 
       return false;
     },
