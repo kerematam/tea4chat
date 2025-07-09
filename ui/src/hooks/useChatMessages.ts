@@ -49,6 +49,12 @@ export const useChatMessages = ({
   // Streaming state - separate from query cache
   const [streamingMessages, setStreamingMessages] = useState<Map<string, MessageType>>(new Map());
   const [isStreamingActive, setIsStreamingActive] = useState(false);
+  const [hasAutoSynced, setHasAutoSynced] = useState(false);
+
+  // Reset auto-sync flag when chatId changes
+  useEffect(() => {
+    setHasAutoSynced(false);
+  }, [chatId]);
 
   // Infinite query for messages (only enabled when chatId exists)
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
@@ -82,7 +88,7 @@ export const useChatMessages = ({
     }
   );
 
-  // console.log("messagesQuery.data", messagesQuery.data)
+  console.log("messagesQuery.data", messagesQuery.data)
 
   // Streaming mutation
   const sendMessageMutation = trpc.message.sendWithStream.useMutation({
@@ -103,22 +109,22 @@ export const useChatMessages = ({
         // Stream ended - fetch new messages and clear streaming state
         setIsStreamingActive(false);
         setStreamingMessages(new Map());
-
+        
         // Fetch new messages from server
         if (chatId) {
           messagesQuery.fetchPreviousPage();
         }
       }
     },
-          onError: (err) => {
-        setIsStreamingActive(false);
-        setStreamingMessages(new Map());
-        
-        // Don't show error if user aborted the stream
-        if (!isUserAbortError(err)) {
-          error(`Failed to send message: ${err.message}`);
-        }
-      },
+    onError: (err) => {
+      setIsStreamingActive(false);
+      setStreamingMessages(new Map());
+      
+      // Don't show error if user aborted the stream
+      if (!isUserAbortError(err)) {
+        error(`Failed to send message: ${err.message}`);
+      }
+    },
   });
 
   // Redis stream listening mutation for reconnection scenarios
@@ -204,6 +210,32 @@ export const useChatMessages = ({
       ...(fromTimestamp && { fromTimestamp })
     });
   }, [chatId, listenToStreamMutation, messagesQuery.data?.pages]);
+
+  // Auto-trigger stream sync on first successful query data load
+  useEffect(() => {
+    if (
+      chatId && 
+      messagesQuery.isSuccess &&
+      messagesQuery.data?.pages?.length &&
+      !hasAutoSynced &&
+      !listenToStreamMutation.isPending && 
+      !sendMessageMutation.isPending &&
+      !isStreamingActive
+    ) {
+      console.log('🔄 Auto-triggering stream sync after first success for chat:', chatId);
+      setHasAutoSynced(true);
+      manualSync();
+    }
+  }, [
+    chatId, 
+    messagesQuery.isSuccess,
+    messagesQuery.data?.pages?.length,
+    hasAutoSynced,
+    listenToStreamMutation.isPending, 
+    sendMessageMutation.isPending,
+    isStreamingActive,
+    manualSync
+  ]);
 
   // Streaming update handler - now only updates streaming state
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
@@ -321,7 +353,7 @@ export const useChatMessages = ({
   // Combine cached messages with streaming messages, using Map for deduplication
   const allMessages = useMemo(() => {
     // Get cached messages from query
-    const cachedMessages = messagesQuery.data?.pages
+    const cachedMessages = messagesQuery.data?.pages 
       ? [...messagesQuery.data.pages].reverse().flatMap((page) => page?.messages || [])
       : [];
 
@@ -339,18 +371,13 @@ export const useChatMessages = ({
     });
 
     // Convert back to array, sorted by creation time
-    const _allMessages = Array.from(messageMap.values()).sort((a, b) =>
+    const _allMessages = Array.from(messageMap.values()).sort((a, b) => 
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
 
-    // console.log("allMessages", _allMessages);
-
     return _allMessages;
-
   }, [messagesQuery.data?.pages, streamingMessages]);
 
-
-  // console.log last two message
   console.log("allMessages (producer)", allMessages.slice(-2));
 
   return {
@@ -384,6 +411,5 @@ export const useChatMessages = ({
 
     // Manual sync function for reconnection
     manualSync,
-
   };
 }; 
