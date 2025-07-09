@@ -1,5 +1,4 @@
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import SyncIcon from "@mui/icons-material/Sync";
 import { Box, Container, Fab, Paper, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useInView } from "react-intersection-observer";
@@ -55,9 +54,8 @@ const Chat = () => {
     isFetchingNextPage,
     sendMessage,
     isSending,
+    abortStream,
     isStreamingActive,
-    isListeningToStream,
-    manualSync,
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
@@ -73,6 +71,11 @@ const Chat = () => {
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const [prevMessages, newMessages] = useMessagesGrouping(allMessages);
+  console.log("allMessages -2 (consumer)", allMessages.slice(-2));
+
+  console.log("prevMessages", prevMessages);
+  console.log("newMessages", newMessages);
+  console.log("isStreamingActive", isStreamingActive);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -149,6 +152,9 @@ const Chat = () => {
           <ChatTextForm
             placeholder="Start a new conversation..."
             chatId={chatId} // Will be undefined for new chat
+            sendMessage={sendMessage}
+            isSending={isSending}
+            abortStream={abortStream}
           />
           {/* ModelSelector only shown after chat is created */}
         </Box>
@@ -295,8 +301,8 @@ const Chat = () => {
         </Fab>
       )}
 
-      {/* Manual sync button */}
-      {chatId && (
+      {/* TODO: Manual sync button - will be enabled in next iteration */}
+      {/* {chatId && (
         <Fab
           size="small"
           color={isStreamingActive ? "secondary" : "default"}
@@ -310,22 +316,26 @@ const Chat = () => {
             opacity: isStreamingActive ? 1 : 0.7,
           }}
           title={
-            isListeningToStream 
-              ? "Syncing..." 
-              : isStreamingActive 
-                ? "Active stream - Click to sync" 
-                : "Manual sync"
+            isListeningToStream
+              ? "Syncing..."
+              : isStreamingActive
+              ? "Active stream - Click to sync"
+              : "Manual sync"
           }
         >
-          <SyncIcon sx={{ 
-            animation: isListeningToStream ? 'spin 1s linear infinite' : 'none',
-            '@keyframes spin': {
-              '0%': { transform: 'rotate(0deg)' },
-              '100%': { transform: 'rotate(360deg)' },
-            }
-          }} />
+          <SyncIcon
+            sx={{
+              animation: isListeningToStream
+                ? "spin 1s linear infinite"
+                : "none",
+              "@keyframes spin": {
+                "0%": { transform: "rotate(0deg)" },
+                "100%": { transform: "rotate(360deg)" },
+              },
+            }}
+          />
         </Fab>
-      )}
+      )} */}
 
       {/* Chat input and model selector */}
       <Box
@@ -341,7 +351,9 @@ const Chat = () => {
         <ChatTextForm
           placeholder="Type your message here..."
           chatId={chatId}
-          // onStreamingUpdate={handleStreamingUpdate}
+          sendMessage={sendMessage}
+          isSending={isSending}
+          abortStream={abortStream}
         />
         {chatId && <ModelSelector chatId={chatId} />}
       </Box>

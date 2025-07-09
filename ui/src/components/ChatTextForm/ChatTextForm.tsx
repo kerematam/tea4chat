@@ -1,51 +1,43 @@
-import { IconButton } from "@mui/material";
-import { Box } from "@mui/material";
-import { ChatTextField } from "../ChatTextField/ChatTextField";
+import { Box, IconButton } from "@mui/material";
 import { useState } from "react";
 import { trpc } from "../../services/trpc";
-import { useChatMessages } from "../../hooks/useChatMessages";
+import { ChatTextField } from "../ChatTextField/ChatTextField";
 
 import SendIcon from "@mui/icons-material/Send";
 import StopIcon from "@mui/icons-material/Stop";
-import { useNavigate } from "react-router-dom";
 
 export const ChatTextForm = ({
   placeholder,
   chatId,
+  sendMessage,
+  isSending,
+  abortStream,
 }: {
   placeholder?: string;
   chatId?: string;
+  sendMessage: (content: string, modelId?: string) => void;
+  isSending: boolean;
+  abortStream: () => void;
 }) => {
   const [question, setQuestion] = useState("");
   const { data: selectedModel } = trpc.model.getSelection.useQuery({ chatId });
   const modelId = selectedModel?.selected?.id;
-  const navigate = useNavigate();
-  const hookResult = useChatMessages({
-    chatId: chatId!,
-    chunkHandlers: {
-      userMessage: () => {
-        setQuestion("");
-      },
-    },
-    onChatCreated: ({ chatId }: { chatId: string }) => {
-      navigate(`/chat/${chatId}`, { replace: true });
-    },
-  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (question.trim() && !hookResult.isSending) {
-      hookResult.sendMessage(question.trim(), modelId);
+    if (question.trim() && !isSending) {
+      sendMessage(question.trim(), modelId);
+      setQuestion(""); // Clear the input after sending
     }
   };
 
   const handleAbort = () => {
-    if (hookResult.isSending && chatId) {
-      hookResult.abortStream();
+    if (isSending && chatId) {
+      abortStream();
     }
   };
 
-  const currentIsLoading = hookResult.isSending;
+  const currentIsLoading = isSending;
 
   return (
     <Box

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { isUserAbortError } from "../../../server/src/lib/errors";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
@@ -24,16 +24,6 @@ export type StreamChunk =
   }
   | { type: "aiMessageComplete"; message: MessageType; chatId: string };
 
-// Types for better type safety
-type InfiniteQueryData = {
-  pages: Array<{
-    messages: MessageType[];
-    direction: "backward" | "forward";
-    syncDate: string;
-    streaming?: boolean; // Add streaming property
-  }>;
-};
-
 interface UseChatMessagesProps {
   chatId?: string; // Made optional to support chat creation
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
@@ -56,8 +46,9 @@ export const useChatMessages = ({
   const { error } = useNotify();
   const utils = trpc.useUtils();
 
-  // Track accumulated content for streaming messages
-  const streamingContent = useRef<Map<string, string>>(new Map());
+  // Streaming state - separate from query cache
+  const [streamingMessages, setStreamingMessages] = useState<Map<string, MessageType>>(new Map());
+  const [isStreamingActive, setIsStreamingActive] = useState(false);
 
   // Infinite query for messages (only enabled when chatId exists)
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
@@ -91,18 +82,12 @@ export const useChatMessages = ({
     }
   );
 
-  console.log("messagesQuery.data", messagesQuery.data)
-  // console.log('🔄 Messages query data:', messagesQuery.data?.pages.flatMap(page => page.messages).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-
-  // Get streaming status from the first page data
-  const isStreamingActive = useMemo(() => {
-    const firstPage = messagesQuery.data?.pages?.[0];
-    return (firstPage as { streaming?: boolean })?.streaming ?? false;
-  }, [messagesQuery.data?.pages]);
+  // console.log("messagesQuery.data", messagesQuery.data)
 
   // Streaming mutation
   const sendMessageMutation = trpc.message.sendWithStream.useMutation({
     onSuccess: async (streamGenerator) => {
+      setIsStreamingActive(true);
       // Process the stream
       try {
         for await (const chunk of streamGenerator) {
@@ -114,64 +99,60 @@ export const useChatMessages = ({
         if (!isUserAbortError(err)) {
           error(`Failed to process stream: ${(err as Error).message}`);
         }
-      }
-    },
-    onError: (err) => {
-      // Don't show error if user aborted the stream
-      if (!isUserAbortError(err)) {
-        error(`Failed to send message: ${err.message}`);
-      }
-    },
-  });
+      } finally {
+        // Stream ended - fetch new messages and clear streaming state
+        setIsStreamingActive(false);
+        setStreamingMessages(new Map());
 
-  // Redis stream listening mutation for reconnection scenarios
-  const listenToStreamMutation = trpc.message.listenToMessageChunkStream.useMutation({
-    onSuccess: async (streamGenerator) => {
-
-      // Process the Redis stream
-      try {
-        console.log('🎧 Starting to listen to Redis stream...');
-        for await (const chunk of streamGenerator) {
-          handleStreamingUpdate(chunk as StreamChunk);
+        // Fetch new messages from server
+        if (chatId) {
+          messagesQuery.fetchPreviousPage();
         }
-        console.log('🏁 Redis stream listening completed');
-      } catch (err) {
-        console.error("Redis stream listening error:", err);
+      }
+    },
+          onError: (err) => {
+        setIsStreamingActive(false);
+        setStreamingMessages(new Map());
+        
         // Don't show error if user aborted the stream
         if (!isUserAbortError(err)) {
-          error(`Failed to listen to stream: ${(err as Error).message}`);
+          error(`Failed to send message: ${err.message}`);
         }
-      }
-    },
-    onError: (err) => {
-      console.error("Failed to listen to Redis stream:", err);
-      error(`Failed to listen to stream: ${err.message}`);
-    },
+      },
   });
 
-  // Auto-trigger stream listening when streaming is detected (page refresh scenario)
-  // useEffect(() => {
-  //   if (isStreamingActive && chatId && !listenToStreamMutation.isPending && !sendMessageMutation.isPending) {
-  //     console.log('🔄 Detected active streaming on page load, starting Redis stream listener...');
-
-  //     // Get syncDate from the first page to avoid processing already cached messages
-  //     const firstPage = messagesQuery.data?.pages?.[0];
-  //     const fromTimestamp = firstPage?.syncDate;
-
-  //     console.log(`📅 Using syncDate as fromTimestamp: ${fromTimestamp}`);
-
-  //     listenToStreamMutation.mutate({
-  //       chatId,
-  //       ...(fromTimestamp && { fromTimestamp })
-  //     });
-  //   }
-  // }, [isStreamingActive, chatId, listenToStreamMutation, sendMessageMutation.isPending, messagesQuery.data?.pages]);
+  // TODO: Redis stream listening mutation for reconnection scenarios
+  // Will be implemented in next iteration
+  // const listenToStreamMutation = trpc.message.listenToMessageChunkStream.useMutation({
+  //   onSuccess: async (streamGenerator) => {
+  //     // Process the Redis stream
+  //     try {
+  //       console.log('🎧 Starting to listen to Redis stream...');
+  //       for await (const chunk of streamGenerator) {
+  //         handleStreamingUpdate(chunk as StreamChunk);
+  //       }
+  //       console.log('🏁 Redis stream listening completed');
+  //     } catch (err) {
+  //       console.error("Redis stream listening error:", err);
+  //       // Don't show error if user aborted the stream
+  //       if (!isUserAbortError(err)) {
+  //         error(`Failed to listen to stream: ${(err as Error).message}`);
+  //       }
+  //     }
+  //   },
+  //   onError: (err) => {
+  //     console.error("Failed to listen to Redis stream:", err);
+  //     error(`Failed to listen to stream: ${err.message}`);
+  //   },
+  // });
 
   // Abort stream mutation
   const abortStreamMutation = trpc.message.abortStream.useMutation({
     onSuccess: (result) => {
       if (result.success) {
         console.log("Stream aborted successfully");
+        setIsStreamingActive(false);
+        setStreamingMessages(new Map());
       } else {
         console.log("No active stream found to abort");
       }
@@ -181,124 +162,6 @@ export const useChatMessages = ({
       error(`Failed to abort stream: ${err.message}`);
     },
   });
-
-  // Add new messages by updating query data directly (no request) - COPIED FROM WORKING IMPLEMENTATION
-  const addNewMessages = useCallback((messages: MessageType[], targetChatId?: string) => {
-    // Use provided targetChatId or fall back to the hook's chatId
-    const activeChatId = targetChatId || chatId;
-
-    if (!activeChatId) {
-      return;
-    }
-
-    if (messages.length === 0) {
-      return;
-    }
-
-    // Match the exact query key structure from React Query devtools
-    const queryInput = {
-      chatId: activeChatId,
-      limit: QUERY_LIMIT,
-      cursor: new Date().toISOString(),
-    };
-    const currentData = utils.message.getMessages.getInfiniteData(queryInput);
-
-    if (!currentData || !currentData.pages.length) {
-      // Initialize cache if it doesn't exist (for new chats)
-      const lastMessage = messages.at(-1);
-      if (!lastMessage) return;
-
-      const syncDate = lastMessage.createdAt;
-      const initialPage = {
-        messages: messages,
-        direction: "backward" as const,
-        syncDate,
-        optimistic: true,
-      };
-
-      utils.message.getMessages.setInfiniteData(queryInput, {
-        pages: [initialPage as InfiniteQueryData["pages"][number]],
-        pageParams: [syncDate],
-      });
-      return;
-    }
-
-    // Add new messages to the first page (most recent messages)
-    const lastMessage = messages.at(-1);
-    if (!lastMessage) throw new Error("No messages to add");
-
-    const syncDate = lastMessage.createdAt;
-    const updatedFirstPage = {
-      messages: messages,
-      direction: "backward" as const,
-      syncDate,
-      optimistic: true,
-    };
-
-    // Update the infinite query data - CREATE NEW PAGE AT BEGINNING
-    utils.message.getMessages.setInfiniteData(queryInput, {
-      pages: [
-        updatedFirstPage as InfiniteQueryData["pages"][number],
-        ...currentData.pages,
-      ],
-      pageParams: [currentData.pages[0]?.syncDate, ...currentData.pageParams],
-    });
-  }, [chatId, utils.message.getMessages]);
-
-  // Update a specific message in the query cache - COPIED FROM WORKING IMPLEMENTATION
-  const updateMessageInCache = useCallback((
-    messageId: string,
-    updates: Partial<MessageType>,
-    targetChatId?: string
-  ) => {
-    // Use provided targetChatId or fall back to the hook's chatId
-    const activeChatId = targetChatId || chatId;
-
-    if (!activeChatId) {
-      return;
-    }
-
-    const queryInput = {
-      chatId: activeChatId,
-      limit: QUERY_LIMIT,
-      cursor: new Date().toISOString(),
-    };
-    const currentData = utils.message.getMessages.getInfiniteData(queryInput);
-
-    if (!currentData || !currentData.pages.length) return;
-
-    // Find and update the message across all pages
-    const updatedPages = currentData.pages.map((page) => ({
-      ...page,
-      messages: page.messages.map((message) =>
-        message.id === messageId ? { ...message, ...updates } : message
-      ),
-    }));
-
-    utils.message.getMessages.setInfiniteData(queryInput, {
-      ...currentData,
-      pages: updatedPages,
-    });
-  }, [chatId, utils.message.getMessages]);
-
-  // Initialize cache for new chat
-  const initializeChatCache = useCallback((newChatId: string) => {
-    const queryInput = {
-      chatId: newChatId,
-      limit: QUERY_LIMIT,
-      cursor: new Date().toISOString(),
-    };
-
-    // Set initial empty page structure
-    utils.message.getMessages.setInfiniteData(queryInput, {
-      pages: [{
-        messages: [],
-        direction: "backward" as const,
-        syncDate: new Date().toISOString(),
-      }],
-      pageParams: [new Date().toISOString()],
-    });
-  }, [utils.message.getMessages]);
 
   // Send message function (supports chat creation)
   const sendMessage = useCallback((content: string, modelId?: string) => {
@@ -320,69 +183,71 @@ export const useChatMessages = ({
     });
   }, [chatId, sendMessageMutation.isPending, abortStreamMutation]);
 
-  // Manual sync function to trigger Redis stream listening
-  const manualSync = useCallback(() => {
-    if (!chatId || listenToStreamMutation.isPending) return;
-
-    console.log('🔄 Manual sync triggered for chat:', chatId);
-
-    // Get syncDate from the first page to avoid processing already cached messages
-    // const firstPage = messagesQuery.data?.pages?.[0];
-    // const fromTimestamp = firstPage?.syncDate;
-
-    // console.log(`📅 Using syncDate as fromTimestamp: ${fromTimestamp}`);
-
-    listenToStreamMutation.mutate({
-      chatId,
-      // ...(fromTimestamp && { fromTimestamp })
-    });
-  }, [chatId, listenToStreamMutation]);
-
-  // Default streaming update handler - COPIED FROM WORKING IMPLEMENTATION
+  // Streaming update handler - now only updates streaming state
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
-
     console.log('🔄 Handling streaming update:', chunk);
+
     switch (chunk.type) {
       case "userMessage":
-        // If this is a new chat creation, initialize cache first
+        // If this is a new chat creation, notify parent
         if (!chatId && chunk.chatId) {
           utils.chat.getAll.invalidate();
-          initializeChatCache(chunk.chatId);
           onChatCreated?.({ chatId: chunk.chatId });
         }
-        // Add the user message to cache (use chatId from chunk)
-        addNewMessages([chunk.message], chunk.chatId);
+
+        // Add user message to streaming state
+        setStreamingMessages(prev => {
+          const newMap = new Map(prev);
+          newMap.set(chunk.message.id, chunk.message);
+          return newMap;
+        });
         chunkHandlers?.userMessage?.(chunk.message as MessageType);
         break;
 
       case "aiMessageStart":
-        // Initialize streaming content for this message
-        streamingContent.current.set(chunk.message.id, "");
-        // Add the initial AI message to cache (use chatId from chunk)
-        addNewMessages([chunk.message], chunk.chatId);
+        // Add AI message to streaming state
+        setStreamingMessages(prev => {
+          const newMap = new Map(prev);
+          newMap.set(chunk.message.id, chunk.message);
+          return newMap;
+        });
         chunkHandlers?.aiMessageStart?.(chunk.message as MessageType);
         break;
 
       case "aiMessageChunk": {
-        // Accumulate the chunk content locally
-        const currentContent = streamingContent.current.get(chunk.messageId) || "";
-        const fullContent = currentContent + chunk.chunk;
-        streamingContent.current.set(chunk.messageId, fullContent);
+        let fullContent = "";
+        
+        // Update the AI message in streaming state
+        setStreamingMessages(prev => {
+          const existingMessage = prev.get(chunk.messageId);
+          if (existingMessage) {
+            console.log("existingMessage", existingMessage);
+            const newMap = new Map(prev);
+            // Accumulate the chunk content from existing message content
+            const currentContent = existingMessage.content || "";
+            fullContent = currentContent + chunk.chunk;
+            const updatedMessage = {
+              ...existingMessage,
+              content: fullContent,
+              text: fullContent,
+            };
+            newMap.set(chunk.messageId, updatedMessage);
+            return newMap;
+          }
+          return prev;
+        });
 
-        // Update the AI message content in cache (use chatId from chunk)
-        updateMessageInCache(chunk.messageId, {
-          content: fullContent,
-          text: fullContent,
-        }, chunk.chatId);
         chunkHandlers?.aiMessageChunk?.(chunk.messageId, fullContent, chunk.chatId);
         break;
       }
 
       case "aiMessageComplete":
-        // Clean up streaming content for this message
-        streamingContent.current.delete(chunk.message.id);
-        // Update with final complete message (use chatId from chunk)
-        updateMessageInCache(chunk.message.id, chunk.message, chunk.chatId);
+        // Update with final complete message in streaming state
+        setStreamingMessages(prev => {
+          const newMap = new Map(prev);
+          newMap.set(chunk.message.id, chunk.message);
+          return newMap;
+        });
         chunkHandlers?.aiMessageComplete?.(chunk.message as MessageType);
         break;
 
@@ -391,9 +256,9 @@ export const useChatMessages = ({
         console.warn("Unknown stream chunk type:", chunk);
         break;
     }
-  }, [addNewMessages, updateMessageInCache, chatId, initializeChatCache, onChatCreated, utils.chat.getAll, chunkHandlers]);
+  }, [chatId, onChatCreated, utils.chat.getAll, chunkHandlers]);
 
-  // Auto-load new messages logic - COPIED FROM WORKING IMPLEMENTATION
+  // Auto-load new messages logic
   const isInitialLoad = useMemo(
     () => !messagesQuery.data?.pages || messagesQuery.data?.pages.length === 0,
     [messagesQuery.data?.pages]
@@ -432,14 +297,40 @@ export const useChatMessages = ({
     return () => window.removeEventListener("focus", handleWindowFocus);
   }, [messagesQuery, isInitialLoad]);
 
-  // Flatten all messages from all pages - COPIED FROM WORKING IMPLEMENTATION
+  // Combine cached messages with streaming messages, using Map for deduplication
   const allMessages = useMemo(() => {
-    if (messagesQuery.data?.pages) {
-      const reversedPages = [...messagesQuery.data.pages].reverse();
-      return reversedPages.flatMap((page) => page?.messages || []) || [];
-    }
-    return [];
-  }, [messagesQuery.data?.pages]);
+    // Get cached messages from query
+    const cachedMessages = messagesQuery.data?.pages
+      ? [...messagesQuery.data.pages].reverse().flatMap((page) => page?.messages || [])
+      : [];
+
+    // Create a Map for deduplication - use message ID as key
+    const messageMap = new Map<string, MessageType>();
+
+    // Add cached messages first
+    cachedMessages.forEach(message => {
+      messageMap.set(message.id, message);
+    });
+
+    // Add streaming messages (they will override cached ones if duplicate IDs)
+    streamingMessages.forEach((message, id) => {
+      messageMap.set(id, message);
+    });
+
+    // Convert back to array, sorted by creation time
+    const _allMessages = Array.from(messageMap.values()).sort((a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
+    // console.log("allMessages", _allMessages);
+
+    return _allMessages;
+
+  }, [messagesQuery.data?.pages, streamingMessages]);
+
+
+  // console.log last two message
+  console.log("allMessages (producer)", allMessages.slice(-2));
 
   return {
     // Messages data
@@ -452,7 +343,7 @@ export const useChatMessages = ({
 
     // Streaming states
     isStreamingActive,
-    isListeningToStream: listenToStreamMutation.isPending,
+    isListeningToStream: false, // listenToStreamMutation.isPending, // TODO: re-implment when implementing reconnection
 
     // Pagination
     fetchNextPage: messagesQuery.fetchNextPage,
@@ -467,15 +358,13 @@ export const useChatMessages = ({
     abortStream,
     isAborting: abortStreamMutation.isPending,
 
-    // Cache helpers
-    addNewMessages,
-    updateMessageInCache,
-    initializeChatCache, // For manual cache initialization
-
     // Streaming handler
     handleStreamingUpdate,
 
-    // Manual sync function
-    manualSync,
+    // TODO: Manual sync function for reconnection - will be implemented in next iteration
+    manualSync: () => {
+      console.log("manualSync");
+    },
+
   };
 }; 
