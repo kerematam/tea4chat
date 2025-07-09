@@ -1,4 +1,5 @@
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import SyncIcon from "@mui/icons-material/Sync";
 import { Box, Container, Fab, Paper, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useInView } from "react-intersection-observer";
@@ -56,6 +57,8 @@ const Chat = () => {
     isSending,
     abortStream,
     isStreamingActive,
+    isListeningToStream,
+    manualSync,
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
@@ -301,8 +304,8 @@ const Chat = () => {
         </Fab>
       )}
 
-      {/* TODO: Manual sync button - will be enabled in next iteration */}
-      {/* {chatId && (
+      {/* Manual sync button */}
+      {chatId && (
         <Fab
           size="small"
           color={isStreamingActive ? "secondary" : "default"}
@@ -310,7 +313,7 @@ const Chat = () => {
           disabled={isListeningToStream}
           sx={{
             position: "absolute",
-            bottom: showScrollButton ? 180 : 120,
+            bottom: 180,
             right: 16,
             zIndex: 1000,
             opacity: isStreamingActive ? 1 : 0.7,
@@ -335,7 +338,7 @@ const Chat = () => {
             }}
           />
         </Fab>
-      )} */}
+      )}
 
       {/* Chat input and model selector */}
       <Box
