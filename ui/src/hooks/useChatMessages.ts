@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { isUserAbortError } from "../../../server/src/lib/errors";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
+import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
 
 // MessageType for client-side (createdAt is serialized as string)
 export type MessageType = {
@@ -120,11 +121,9 @@ export const useChatMessages = ({
     onSuccess: async (streamGenerator) => {
       // Process the Redis stream
       try {
-        console.log('🎧 Starting to listen to Redis stream...');
         for await (const chunk of streamGenerator) {
           handleStreamingUpdate(chunk as StreamChunk);
         }
-        console.log('🏁 Redis stream listening completed');
       } catch (err) {
         console.error("Redis stream listening error:", err);
         // Don't show error if user aborted the stream
@@ -145,10 +144,7 @@ export const useChatMessages = ({
   const abortStreamMutation = trpc.message.abortStream.useMutation({
     onSuccess: (result) => {
       if (result.success) {
-        console.log("Stream aborted successfully");
         setStreamingMessages(new Map());
-      } else {
-        console.log("No active stream found to abort");
       }
     },
     onError: (err) => {
@@ -184,13 +180,9 @@ export const useChatMessages = ({
   const manualSync = useCallback(() => {
     if (!chatId || listenToStreamMutation.isPending) return;
 
-    console.log('🔄 Manual sync triggered for chat:', chatId);
-
     // Get syncDate from the first page to avoid processing already cached messages
     const firstPage = messagesQuery.data?.pages?.[0];
     const fromTimestamp = firstPage?.syncDate;
-
-    console.log(`📅 Using syncDate as fromTimestamp: ${fromTimestamp}`);
 
     listenToStreamMutation.mutate({
       chatId,
@@ -208,8 +200,6 @@ export const useChatMessages = ({
 
   // Streaming update handler - now only updates streaming state
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
-    console.log('🔄 Handling streaming update:', chunk);
-
     switch (chunk.type) {
       case "userMessage":
         // If this is a new chat creation, notify parent
@@ -281,11 +271,6 @@ export const useChatMessages = ({
   }, [chatId, onChatCreated, utils.chat.getAll, chunkHandlers]);
 
   // Auto-load new messages logic
-  const isInitialLoad = useMemo(
-    () => !messagesQuery.data?.pages || messagesQuery.data?.pages.length === 0,
-    [messagesQuery.data?.pages]
-  );
-
   const shouldContinueLoading = useMemo(() => {
     if (!messagesQuery.data?.pages?.length || messagesQuery.isFetchingPreviousPage) return false;
 
@@ -307,17 +292,11 @@ export const useChatMessages = ({
     return () => clearTimeout(timeoutId);
   }, [shouldContinueLoading, messagesQuery]);
 
-  // Window focus loading effect
-  useEffect(() => {
-    const handleWindowFocus = () => {
-      if (!messagesQuery.isFetchingPreviousPage && !isInitialLoad) {
-        messagesQuery.fetchPreviousPage();
-      }
-    };
-
-    window.addEventListener("focus", handleWindowFocus);
-    return () => window.removeEventListener("focus", handleWindowFocus);
-  }, [messagesQuery, isInitialLoad]);
+  // Use custom hook for window focus refresh instead of manual implementation
+  useRefreshLatestOnFocus(messagesQuery, {
+    enabled: !!chatId, // Only active when we have a chatId
+    skipInitialLoad: true, // Skip refresh on initial load
+  });
 
   // Combine cached messages with streaming messages, using Map for deduplication
   const allMessages = useMemo(() => {
@@ -346,8 +325,6 @@ export const useChatMessages = ({
 
     return _allMessages;
   }, [messagesQuery.data?.pages, streamingMessages]);
-
-  console.log("allMessages (producer)", allMessages.slice(-2));
 
   return {
     // Messages data
