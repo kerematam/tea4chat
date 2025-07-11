@@ -68,9 +68,6 @@ const Chat = () => {
     fetchMore: fetchNextPage,
     hasMore: hasNextPage,
     isFetching: isFetchingNextPage,
-    rootMargin: "50px",
-    threshold: 0,
-    enableLogging: true, // For debugging older messages
   });
 
   // Infinite scroll for loading newer messages
@@ -78,9 +75,6 @@ const Chat = () => {
     fetchMore: fetchPreviousPage,
     hasMore: hasPreviousPage,
     isFetching: isFetchingPreviousPage,
-    rootMargin: "50px",
-    threshold: 0,
-    enableLogging: true, // For debugging newer messages
   });
 
   const [prevMessages, newMessages] = useMessagesGrouping(allMessages);

@@ -10,12 +10,17 @@ interface UseInfiniteScrollProps {
   isFetching?: boolean;
   
   // Configuration
-  rootMargin?: string;
-  threshold?: number;
   enabled?: boolean;
   
-  // Debug options
-  enableLogging?: boolean;
+  // Intersection observer options
+  observerArgs?: {
+    rootMargin?: string;
+    threshold?: number;
+    root?: Element | Document | null;
+    triggerOnce?: boolean;
+    skip?: boolean;
+    initialInView?: boolean;
+  };
 }
 
 interface UseInfiniteScrollReturn {
@@ -27,17 +32,29 @@ interface UseInfiniteScrollReturn {
 }
 
 /**
- * A simple hook for unidirectional infinite scrolling
+ * A simple hook for infinite scrolling with intersection observers
  * 
  * @param props Configuration object
  * @returns Object with trigger ref and in-view state
  * 
  * @example
  * ```tsx
+ * // Basic usage
  * const { triggerRef } = useInfiniteScroll({
  *   fetchMore: fetchNextPage,
  *   hasMore: hasNextPage,
  *   isFetching: isFetchingNextPage,
+ * });
+ * 
+ * // Custom observer configuration
+ * const { triggerRef } = useInfiniteScroll({
+ *   fetchMore: fetchNextPage,
+ *   hasMore: hasNextPage,
+ *   isFetching: isFetchingNextPage,
+ *   observerArgs: {
+ *     rootMargin: "100px",
+ *     threshold: 0.5,
+ *   }
  * });
  * 
  * // In your JSX:
@@ -53,17 +70,16 @@ export const useInfiniteScroll = ({
   fetchMore,
   hasMore = false,
   isFetching = false,
-  rootMargin = "50px",
-  threshold = 0,
   enabled = true,
-  enableLogging = false,
+  observerArgs,
 }: UseInfiniteScrollProps): UseInfiniteScrollReturn => {
   
   // Intersection observer for loading more content
   const { ref: triggerRef, inView } = useInView({
-    threshold,
-    rootMargin,
+    rootMargin: "50px",
+    threshold: 0,
     skip: !enabled,
+    ...observerArgs,
   });
 
   // Auto-load when trigger comes into view
@@ -71,9 +87,6 @@ export const useInfiniteScroll = ({
     if (!enabled || !fetchMore) return;
     
     if (!isFetching && inView && hasMore) {
-      if (enableLogging) {
-        console.log("Auto-loading more content - trigger in view");
-      }
       fetchMore();
     }
   }, [
@@ -81,8 +94,7 @@ export const useInfiniteScroll = ({
     isFetching, 
     inView, 
     hasMore, 
-    fetchMore,
-    enableLogging
+    fetchMore
   ]);
 
   return {
