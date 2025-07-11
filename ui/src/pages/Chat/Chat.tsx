@@ -2,7 +2,6 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import SyncIcon from "@mui/icons-material/Sync";
 import { Box, Container, Fab, Paper, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
-import { useInView } from "react-intersection-observer";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useLocation } from "react-router-dom";
@@ -11,6 +10,7 @@ import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
 
 import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
+import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import Landing from "./components/Landing/Landing";
 
 export type SqlTable = {
@@ -39,18 +39,6 @@ const Chat = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Intersection observer for loading older messages - placed at the end of older messages
-  const { ref: loadMoreRef, inView } = useInView({
-    threshold: 0,
-    rootMargin: "50px",
-  });
-
-  // Intersection observer for loading newer messages - placed at the bottom (top in column-reverse)
-  const { ref: loadNewerRef, inView: inViewNewer } = useInView({
-    threshold: 0,
-    rootMargin: "50px",
-  });
-
   // Use our custom hook for all chat functionality
   const {
     messages: allMessages,
@@ -75,19 +63,25 @@ const Chat = () => {
     },
   });
 
-  // Load older messages when intersection observer is triggered
-  useEffect(() => {
-    if (inView && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // Infinite scroll for loading older messages
+  const { triggerRef: loadMoreRef } = useInfiniteScroll({
+    fetchMore: fetchNextPage,
+    hasMore: hasNextPage,
+    isFetching: isFetchingNextPage,
+    rootMargin: "50px",
+    threshold: 0,
+    enableLogging: true, // For debugging older messages
+  });
 
-  // Load newer messages when intersection observer is triggered
-  useEffect(() => {
-    if (inViewNewer && hasPreviousPage && !isFetchingPreviousPage) {
-      fetchPreviousPage();
-    }
-  }, [inViewNewer, hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage]);
+  // Infinite scroll for loading newer messages
+  const { triggerRef: loadNewerRef } = useInfiniteScroll({
+    fetchMore: fetchPreviousPage,
+    hasMore: hasPreviousPage,
+    isFetching: isFetchingPreviousPage,
+    rootMargin: "50px",
+    threshold: 0,
+    enableLogging: true, // For debugging newer messages
+  });
 
   const [prevMessages, newMessages] = useMessagesGrouping(allMessages);
 
@@ -109,8 +103,6 @@ const Chat = () => {
     container?.addEventListener("scroll", handleScroll);
     return () => container?.removeEventListener("scroll", handleScroll);
   }, []);
-
-
 
   if (location.pathname === "/") {
     return <Landing onSendMessage={sendMessage} isSending={isSending} />;
