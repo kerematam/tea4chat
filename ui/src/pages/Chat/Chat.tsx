@@ -74,11 +74,6 @@ const Chat = () => {
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const [prevMessages, newMessages] = useMessagesGrouping(allMessages);
-  console.log("allMessages -2 (consumer)", allMessages.slice(-2));
-
-  console.log("prevMessages", prevMessages);
-  console.log("newMessages", newMessages);
-  console.log("isStreamingActive", isStreamingActive);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
