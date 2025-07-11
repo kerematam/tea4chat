@@ -321,7 +321,7 @@ export class MockProvider implements AIProvider {
 
   private getModelSpeed(model: string | 'mock-fast' | 'mock-slow' | 'mock-verbose' | 'mock-concise' | 'mock-creative'): number {
     switch (model) {
-      case "mock-fast": return 50; // 50ms between words
+      case "mock-fast": return 5; // 10ms between words
       case "mock-slow": return 500; // 500ms between words
       case "mock-verbose": return 100; // 100ms, more words
       case "mock-concise": return 150; // 150ms, fewer words

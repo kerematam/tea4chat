@@ -37,7 +37,7 @@ interface UseChatMessagesProps {
 }
 
 // TODO: streaming only works on 4
-const QUERY_LIMIT = 20;
+const QUERY_LIMIT = 2;
 
 export const useChatMessages = ({
   chatId,
@@ -190,7 +190,6 @@ export const useChatMessages = ({
     });
   }, [chatId, listenToStreamMutation, messagesQuery.data?.pages]);
 
-
   // TODO: this is a hack to sync the stream when new messages are added
   const syncDate = messagesQuery.data?.pages?.[0]?.syncDate;
   useEffect(() => {
@@ -270,27 +269,18 @@ export const useChatMessages = ({
     }
   }, [chatId, onChatCreated, utils.chat.getAll, chunkHandlers]);
 
-  // Auto-load new messages logic
-  const shouldContinueLoading = useMemo(() => {
-    if (!messagesQuery.data?.pages?.length || messagesQuery.isFetchingPreviousPage) return false;
+  // Check if there are more newer messages to load (previous page in backward direction)
+  const hasPreviousPage = useMemo(() => {
+    if (!messagesQuery.data?.pages?.length) return false;
 
     const firstPage = messagesQuery.data.pages[0];
     const hasMoreMessagesToLoad = firstPage?.messages?.length === QUERY_LIMIT;
-    const hasMultiplePages = messagesQuery.data.pages.length > 1;
+    const isNewerMessages = firstPage?.direction === "backward";
 
-    return hasMoreMessagesToLoad && hasMultiplePages;
-  }, [messagesQuery.data?.pages, messagesQuery.isFetchingPreviousPage]);
+    return hasMoreMessagesToLoad && isNewerMessages;
+  }, [messagesQuery.data?.pages]);
 
-  // Continuous loading effect
-  useEffect(() => {
-    if (!shouldContinueLoading) return;
-
-    const timeoutId = setTimeout(() => {
-      messagesQuery.fetchPreviousPage();
-    }, 100);
-
-    return () => clearTimeout(timeoutId);
-  }, [shouldContinueLoading, messagesQuery]);
+  console.log("direction", messagesQuery.data?.pages[0]?.direction);
 
   // Use custom hook for window focus refresh instead of manual implementation
   useRefreshLatestOnFocus(messagesQuery, {
@@ -343,6 +333,7 @@ export const useChatMessages = ({
     fetchNextPage: messagesQuery.fetchNextPage,
     fetchPreviousPage: messagesQuery.fetchPreviousPage,
     hasNextPage: messagesQuery.hasNextPage,
+    hasPreviousPage,
     isFetchingNextPage: messagesQuery.isFetchingNextPage,
     isFetchingPreviousPage: messagesQuery.isFetchingPreviousPage,
 

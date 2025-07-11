@@ -39,8 +39,14 @@ const Chat = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Intersection observer for loading more messages - placed at the end of older messages
+  // Intersection observer for loading older messages - placed at the end of older messages
   const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0,
+    rootMargin: "50px",
+  });
+
+  // Intersection observer for loading newer messages - placed at the bottom (top in column-reverse)
+  const { ref: loadNewerRef, inView: inViewNewer } = useInView({
     threshold: 0,
     rootMargin: "50px",
   });
@@ -51,8 +57,11 @@ const Chat = () => {
     isLoading,
     error,
     fetchNextPage,
+    fetchPreviousPage,
     hasNextPage,
+    hasPreviousPage,
     isFetchingNextPage,
+    isFetchingPreviousPage,
     sendMessage,
     isSending,
     abortStream,
@@ -72,6 +81,13 @@ const Chat = () => {
       fetchNextPage();
     }
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Load newer messages when intersection observer is triggered
+  useEffect(() => {
+    if (inViewNewer && hasPreviousPage && !isFetchingPreviousPage) {
+      fetchPreviousPage();
+    }
+  }, [inViewNewer, hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage]);
 
   const [prevMessages, newMessages] = useMessagesGrouping(allMessages);
 
@@ -93,6 +109,8 @@ const Chat = () => {
     container?.addEventListener("scroll", handleScroll);
     return () => container?.removeEventListener("scroll", handleScroll);
   }, []);
+
+
 
   if (location.pathname === "/") {
     return <Landing onSendMessage={sendMessage} isSending={isSending} />;
@@ -246,6 +264,21 @@ const Chat = () => {
       >
         {/* Bottom reference for scroll to bottom */}
         <Box ref={bottomRef} />
+
+        {/* Load newer messages trigger - placed at bottom (visually) */}
+        {hasPreviousPage && (
+          <Box
+            ref={loadNewerRef}
+            sx={{
+              py: 1,
+              textAlign: "center",
+              color: "text.secondary",
+              fontSize: "0.875rem",
+            }}
+          >
+            {isFetchingPreviousPage ? "Loading newer messages..." : ""}
+          </Box>
+        )}
 
         {/* New messages section */}
         <Box
