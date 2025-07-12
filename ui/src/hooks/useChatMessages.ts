@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { isUserAbortError } from "../../../server/src/lib/errors";
-import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
+import { useChatStreaming } from "./useChatStreaming";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
 
 /**
@@ -75,7 +74,6 @@ export const useChatMessages = ({
   onChatCreated,
   chunkHandlers,
 }: UseChatMessagesProps) => {
-  const { error } = useNotify();
   const utils = trpc.useUtils();
 
   // Streaming state - separate from query cache
@@ -112,121 +110,6 @@ export const useChatMessages = ({
       }
     }
   );
-
-  // Streaming mutation
-  const sendMessageMutation = trpc.message.sendWithStream.useMutation({
-    onSuccess: async (streamGenerator) => {
-      // Process the stream
-      try {
-        for await (const chunk of streamGenerator) {
-          handleStreamingUpdate(chunk);
-        }
-      } catch (err) {
-        console.error("Stream processing error:", err);
-        // Don't show error if user aborted the stream
-        if (!isUserAbortError(err)) {
-          error(`Failed to process stream: ${(err as Error).message}`);
-        }
-      } finally {
-        // Stream ended - fetch new messages and clear streaming state
-        setStreamingMessages(new Map());
-
-        // Fetch new messages from server
-        if (chatId) {
-          messagesQuery.fetchPreviousPage();
-        }
-      }
-    },
-    onError: (err) => {
-      setStreamingMessages(new Map());
-
-      // Don't show error if user aborted the stream
-      if (!isUserAbortError(err)) {
-        error(`Failed to send message: ${err.message}`);
-      }
-    },
-  });
-
-  // Redis stream listening mutation for reconnection scenarios
-  const listenToStreamMutation = trpc.message.listenToMessageChunkStream.useMutation({
-    onSuccess: async (streamGenerator) => {
-      // Process the Redis stream
-      try {
-        for await (const chunk of streamGenerator) {
-          handleStreamingUpdate(chunk as StreamChunk);
-        }
-      } catch (err) {
-        console.error("Redis stream listening error:", err);
-        // Don't show error if user aborted the stream
-        if (!isUserAbortError(err)) {
-          error(`Failed to listen to stream: ${(err as Error).message}`);
-        }
-      } finally {
-        // Stream listening ended - fetch new messages and clear streaming state if needed
-      }
-    },
-    onError: (err) => {
-      console.error("Failed to listen to Redis stream:", err);
-      error(`Failed to listen to stream: ${err.message}`);
-    },
-  });
-
-  // Abort stream mutation
-  const abortStreamMutation = trpc.message.abortStream.useMutation({
-    onSuccess: (result) => {
-      if (result.success) {
-        setStreamingMessages(new Map());
-      }
-    },
-    onError: (err) => {
-      console.error("Failed to abort stream:", err);
-      error(`Failed to abort stream: ${err.message}`);
-    },
-  });
-
-  // Derived streaming state from mutations
-  const isStreamingActive = sendMessageMutation.isPending || listenToStreamMutation.isPending;
-
-  // Send message function (supports chat creation)
-  const sendMessage = useCallback((content: string, modelId?: string) => {
-    if (!content.trim() || sendMessageMutation.isPending) return;
-
-    sendMessageMutation.mutate({
-      content: content.trim(),
-      chatId, // Can be undefined for new chat creation
-      modelId,
-    });
-  }, [chatId, sendMessageMutation]);
-
-  // Abort stream function
-  const abortStream = useCallback(() => {
-    if (!chatId || !sendMessageMutation.isPending) return;
-
-    abortStreamMutation.mutate({
-      chatId,
-    });
-  }, [chatId, sendMessageMutation.isPending, abortStreamMutation]);
-
-  // Manual sync function to trigger Redis stream listening
-  const manualSync = useCallback(() => {
-    if (!chatId || listenToStreamMutation.isPending) return;
-
-    // Get syncDate from the first page to avoid processing already cached messages
-    const firstPage = messagesQuery.data?.pages?.[0];
-    const fromTimestamp = firstPage?.syncDate;
-
-    listenToStreamMutation.mutate({
-      chatId,
-      ...(fromTimestamp && { fromTimestamp })
-    });
-  }, [chatId, listenToStreamMutation, messagesQuery.data?.pages]);
-
-  // TODO: this is a hack to sync the stream when new messages are added
-  const syncDate = messagesQuery.data?.pages?.[0]?.syncDate;
-  useEffect(() => {
-    if (syncDate) manualSync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncDate])
 
   // Streaming update handler - now only updates streaming state
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
@@ -300,6 +183,44 @@ export const useChatMessages = ({
     }
   }, [chatId, onChatCreated, utils.chat.getAll, chunkHandlers]);
 
+  // Stream mutations hook
+  const streamMutations = useChatStreaming({
+    chatId,
+    onStreamChunk: handleStreamingUpdate,
+    onStreamEnd: () => {
+      // Stream ended - fetch new messages and clear streaming state
+      setStreamingMessages(new Map());
+
+      // Fetch new messages from server
+      if (chatId) {
+        messagesQuery.fetchPreviousPage();
+      }
+    },
+    onStreamingStateChange: (isStreaming: boolean) => {
+      if (!isStreaming) {
+        setStreamingMessages(new Map());
+      }
+    },
+  });
+
+  // Manual sync function to trigger Redis stream listening
+  const manualSync = useCallback(() => {
+    if (!chatId) return;
+
+    // Get syncDate from the first page to avoid processing already cached messages
+    const firstPage = messagesQuery.data?.pages?.[0];
+    const fromTimestamp = firstPage?.syncDate;
+
+    streamMutations.listenToStream(fromTimestamp);
+  }, [chatId, streamMutations, messagesQuery.data?.pages]);
+
+  // TODO: this is a hack to sync the stream when new messages are added
+  const syncDate = messagesQuery.data?.pages?.[0]?.syncDate;
+  useEffect(() => {
+    if (syncDate) manualSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncDate])
+
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
     if (!messagesQuery.data?.pages?.length) return false;
@@ -357,8 +278,8 @@ export const useChatMessages = ({
     error: messagesQuery.error,
 
     // Streaming states
-    isStreamingActive,
-    isListeningToStream: listenToStreamMutation.isPending,
+    isStreamingActive: streamMutations.isStreamingActive,
+    isListeningToStream: streamMutations.isListeningToStream,
 
     // Pagination
     fetchNextPage: messagesQuery.fetchNextPage,
@@ -369,10 +290,10 @@ export const useChatMessages = ({
     isFetchingPreviousPage: messagesQuery.isFetchingPreviousPage,
 
     // Message sending
-    sendMessage,
-    isSending: sendMessageMutation.isPending,
-    abortStream,
-    isAborting: abortStreamMutation.isPending,
+    sendMessage: streamMutations.sendMessage,
+    isSending: streamMutations.isSending,
+    abortStream: streamMutations.abortStream,
+    isAborting: streamMutations.isAborting,
 
     // Streaming handler
     handleStreamingUpdate,
