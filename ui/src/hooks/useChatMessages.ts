@@ -4,6 +4,37 @@ import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
 
+/**
+ * useChatMessages - A comprehensive hook for managing chat messages with real-time streaming
+ * 
+ * STREAMING STRATEGY:
+ * This hook uses a hybrid approach for optimal performance:
+ * 
+ * 1. PRIMARY STREAMING (Fast & Direct):
+ *    - Uses `trpc.message.sendWithStream` mutation for immediate streaming
+ *    - This provides the fastest possible response as it streams directly from the AI provider
+ *    - No Redis intermediary = minimal latency
+ * 
+ * 2. FALLBACK STREAMING (Redis-based):
+ *    - Uses `trpc.message.listenToMessageChunkStream` for reconnection scenarios
+ *    - This streams from Redis state, which is slower but more reliable for reconnections
+ *    - Used when the primary stream is interrupted or for manual sync
+ * 
+ * 3. HISTORICAL MESSAGES:
+ *    - Uses `trpc.message.getMessages.useInfiniteQuery` for paginated message history
+ *    - Provides efficient loading of older messages with caching
+ *    - Supports both forward and backward pagination
+ * 
+ * ARCHITECTURE:
+ * - Combines streaming messages (temporary, in-memory) with cached messages (persistent)
+ * - Deduplicates messages using a Map to prevent duplicates during streaming
+ * - Manages streaming state separately from query cache for optimal performance
+ * - Handles chat creation, message sending, stream abortion, and reconnection scenarios
+ * 
+ * This hook essentially wraps all chat message operations into a single, cohesive interface
+ * that provides real-time streaming with reliable message persistence and pagination.
+ */
+
 // MessageType for client-side (createdAt is serialized as string)
 export type MessageType = {
   id: string;
