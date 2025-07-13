@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { trpc } from "../services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
@@ -76,9 +76,6 @@ export const useChatMessages = ({
 }: UseChatMessagesProps) => {
   const utils = trpc.useUtils();
 
-  // Streaming state - separate from query cache
-  const [streamingMessages, setStreamingMessages] = useState<Map<string, MessageType>>(new Map());
-
   // Infinite query for messages (only enabled when chatId exists)
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
     {
@@ -111,95 +108,20 @@ export const useChatMessages = ({
     }
   );
 
-  // Streaming update handler - now only updates streaming state
-  const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
-    switch (chunk.type) {
-      case "userMessage":
-        // If this is a new chat creation, notify parent
-        if (!chatId && chunk.chatId) {
-          utils.chat.getAll.invalidate();
-          onChatCreated?.({ chatId: chunk.chatId });
-        }
-
-        // Add user message to streaming state
-        setStreamingMessages(prev => {
-          const newMap = new Map(prev);
-          newMap.set(chunk.message.id, chunk.message);
-          return newMap;
-        });
-        chunkHandlers?.userMessage?.(chunk.message as MessageType);
-        break;
-
-      case "aiMessageStart":
-        // Add AI message to streaming state
-        setStreamingMessages(prev => {
-          const newMap = new Map(prev);
-          newMap.set(chunk.message.id, chunk.message);
-          return newMap;
-        });
-        chunkHandlers?.aiMessageStart?.(chunk.message as MessageType);
-        break;
-
-      case "aiMessageChunk": {
-        let fullContent = "";
-
-        // Update the AI message in streaming state
-        setStreamingMessages(prev => {
-          const existingMessage = prev.get(chunk.messageId);
-          if (existingMessage) {
-            const newMap = new Map(prev);
-            // Accumulate the chunk content from existing message content
-            const currentContent = existingMessage.content || "";
-            fullContent = currentContent + chunk.chunk;
-            const updatedMessage = {
-              ...existingMessage,
-              content: fullContent,
-              text: fullContent,
-            };
-            newMap.set(chunk.messageId, updatedMessage);
-            return newMap;
-          }
-          return prev;
-        });
-
-        chunkHandlers?.aiMessageChunk?.(chunk.messageId, fullContent, chunk.chatId);
-        break;
-      }
-
-      case "aiMessageComplete":
-        // Update with final complete message in streaming state
-        setStreamingMessages(prev => {
-          const newMap = new Map(prev);
-          newMap.set(chunk.message.id, chunk.message);
-          return newMap;
-        });
-        chunkHandlers?.aiMessageComplete?.(chunk.message as MessageType);
-        break;
-
-      default:
-        // Handle unexpected chunk types gracefully
-        console.warn("Unknown stream chunk type:", chunk);
-        break;
-    }
-  }, [chatId, onChatCreated, utils.chat.getAll, chunkHandlers]);
-
-  // Stream mutations hook
-  const streamMutations = useChatStreaming({
+  // Streaming hook
+  const streaming = useChatStreaming({
     chatId,
-    onStreamChunk: handleStreamingUpdate,
+    onChatCreated,
+    chunkHandlers,
+    utils,
     onStreamEnd: () => {
-      // Stream ended - fetch new messages and clear streaming state
-      setStreamingMessages(new Map());
-
-      // Fetch new messages from server
+      // Stream ended - fetch new messages from server
       if (chatId) {
         messagesQuery.fetchPreviousPage();
       }
     },
-    onStreamingStateChange: (isStreaming: boolean) => {
-      if (!isStreaming) {
-        setStreamingMessages(new Map());
-      }
+    onStreamingStateChange: () => {
+      // Handle streaming state changes if needed
     },
   });
 
@@ -211,8 +133,8 @@ export const useChatMessages = ({
     const firstPage = messagesQuery.data?.pages?.[0];
     const fromTimestamp = firstPage?.syncDate;
 
-    streamMutations.listenToStream(fromTimestamp);
-  }, [chatId, streamMutations, messagesQuery.data?.pages]);
+    streaming.listenToStream(fromTimestamp);
+  }, [chatId, streaming, messagesQuery.data?.pages]);
 
   // TODO: this is a hack to sync the stream when new messages are added
   const syncDate = messagesQuery.data?.pages?.[0]?.syncDate;
@@ -256,7 +178,7 @@ export const useChatMessages = ({
     });
 
     // Add streaming messages (they will override cached ones if duplicate IDs)
-    streamingMessages.forEach((message, id) => {
+    streaming.streamingMessages.forEach((message, id) => {
       messageMap.set(id, message);
     });
 
@@ -266,7 +188,7 @@ export const useChatMessages = ({
     );
 
     return _allMessages;
-  }, [messagesQuery.data?.pages, streamingMessages]);
+  }, [messagesQuery.data?.pages, streaming.streamingMessages]);
 
   return {
     // Messages data
@@ -278,8 +200,8 @@ export const useChatMessages = ({
     error: messagesQuery.error,
 
     // Streaming states
-    isStreamingActive: streamMutations.isStreamingActive,
-    isListeningToStream: streamMutations.isListeningToStream,
+    isStreamingActive: streaming.isStreamingActive,
+    isListeningToStream: streaming.isListeningToStream,
 
     // Pagination
     fetchNextPage: messagesQuery.fetchNextPage,
@@ -290,13 +212,10 @@ export const useChatMessages = ({
     isFetchingPreviousPage: messagesQuery.isFetchingPreviousPage,
 
     // Message sending
-    sendMessage: streamMutations.sendMessage,
-    isSending: streamMutations.isSending,
-    abortStream: streamMutations.abortStream,
-    isAborting: streamMutations.isAborting,
-
-    // Streaming handler
-    handleStreamingUpdate,
+    sendMessage: streaming.sendMessage,
+    isSending: streaming.isSending,
+    abortStream: streaming.abortStream,
+    isAborting: streaming.isAborting,
 
     // Manual sync function for reconnection
     manualSync,
