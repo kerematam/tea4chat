@@ -8,6 +8,14 @@ generator client {
   binaryTargets = ["native", "linux-arm64-openssl-1.1.x", "darwin-arm64"]
 }
 
+enum MessageStatus {
+  STARTED // just before streaming starts
+  STREAMING // streaming is in progress
+  COMPLETED // streaming is complete
+  FAILED
+  ABORTED
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -99,6 +107,9 @@ model Message {
   // model that produced / will consume this message
   modelId   String?
   model     ModelCatalog? @relation(fields: [modelId], references: [id])
+
+  // status
+  status    MessageStatus   @default(COMPLETED)
 
   chat      Chat     @relation(fields: [chatId], references: [id])
   chatId    String

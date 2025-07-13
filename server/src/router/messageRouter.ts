@@ -1,4 +1,4 @@
-import { PrismaClient, type Message, type ModelCatalog } from "@prisma/client";
+import { MessageStatus, PrismaClient, type Message, type ModelCatalog } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { FALLBACK_MODEL } from "../constants/defaultOwnerSettings";
@@ -62,6 +62,7 @@ const fetchOlderMessages = async (chatId: string, cursorDate: Date, limit: numbe
     where: {
       chatId,
       createdAt: { lt: cursorDate },
+      status: MessageStatus.COMPLETED,
     },
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -75,6 +76,7 @@ const fetchNewerMessages = async (chatId: string, cursorDate: Date, limit: numbe
     where: {
       chatId,
       createdAt: { gt: cursorDate },
+      status: MessageStatus.COMPLETED,
     },
     orderBy: { createdAt: "asc" },
     take: limit,
@@ -222,6 +224,7 @@ export const messageRouter = router({
         // Create a placeholder AI message in the database
         const aiMessage = await prisma.message.create({
           data: {
+            status: MessageStatus.STARTED,
             content: "",
             from: "assistant",
             text: "",
@@ -250,7 +253,7 @@ export const messageRouter = router({
             const dualEnqueue = async (message: StreamMessage) => {
               // Enqueue to current client stream (real-time for initiating client)
               enqueue(message);
-              
+
               // Enqueue to Redis stream (persistent for other clients/page refreshes)
               await redisStreamQueue!.enqueue(message);
             };
@@ -350,6 +353,7 @@ export const messageRouter = router({
               data: {
                 content: fullContent,
                 text: fullContent,
+                status: MessageStatus.COMPLETED,
               },
             });
 
@@ -412,7 +416,7 @@ export const messageRouter = router({
           } finally {
             // Always cleanup both streams when done
             streamAbortRegistry.cleanup(streamId);
-            
+
             // Cleanup Redis stream queue
             if (redisStreamQueue) {
               redisStreamQueue.cleanup();
@@ -539,9 +543,17 @@ export const messageRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       console.log(`🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId}${input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ''}`);
-      
+
+
+      const res = await subscribeToMessageChunkStream(input.chatId, {
+        // fromTimestamp: input.fromTimestamp 
+      });
+
+      console.log("input");
+      console.log("res", res);
+
       // Return the async generator from subscribeToMessageChunkStream with optional timestamp
-      return subscribeToMessageChunkStream(input.chatId, { 
+      return subscribeToMessageChunkStream(input.chatId, {
         // fromTimestamp: input.fromTimestamp 
       });
     }),
