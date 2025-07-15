@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { trpc } from "../services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
+import useValueChange from "./useValueChange";
 
 /**
  * useChatMessages - A comprehensive hook for managing chat messages with real-time streaming
@@ -67,7 +68,7 @@ interface UseChatMessagesProps {
 }
 
 // TODO: streaming only works on 4
-const QUERY_LIMIT = 2;
+const QUERY_LIMIT = 10;
 
 export const useChatMessages = ({
   chatId,
@@ -136,12 +137,12 @@ export const useChatMessages = ({
     streaming.listenToStream(fromTimestamp);
   }, [chatId, streaming, messagesQuery.data?.pages]);
 
-  // TODO: this is a hack to sync the stream when new messages are added
-  const syncDate = messagesQuery.data?.pages?.[0]?.syncDate;
-  useEffect(() => {
-    if (syncDate) manualSync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncDate])
+
+  const streamingMessageId = messagesQuery.data?.pages?.[0]?.streamingMessage?.id;
+  useValueChange(streamingMessageId, (value) => {
+    if (value) manualSync()
+  })
+
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
@@ -162,37 +163,39 @@ export const useChatMessages = ({
     skipInitialLoad: true, // Skip refresh on initial load
   });
 
-  // Combine cached messages with streaming messages, using Map for deduplication
-  const allMessages = useMemo(() => {
+  // Get cached messages and filter out duplicates with streaming messages
+  const prevMessages = useMemo(() => {
     // Get cached messages from query
     const cachedMessages = messagesQuery.data?.pages
       ? [...messagesQuery.data.pages].reverse().flatMap((page) => page?.messages || [])
       : [];
 
-    // Create a Map for deduplication - use message ID as key
-    const messageMap = new Map<string, MessageType>();
+    // If no streaming messages, just return cached messages
+    if (streaming.streamingMessages.size === 0) {
+      return cachedMessages;
+    }
 
-    // Add cached messages first
-    cachedMessages.forEach(message => {
-      messageMap.set(message.id, message);
-    });
-
-    // Add streaming messages (they will override cached ones if duplicate IDs)
-    streaming.streamingMessages.forEach((message, id) => {
-      messageMap.set(id, message);
-    });
-
-    // Convert back to array, sorted by creation time
-    const _allMessages = Array.from(messageMap.values()).sort((a, b) =>
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    // Get streaming message IDs to filter out duplicates
+    const streamingMessageIds = new Set(
+      Array.from(streaming.streamingMessages.values()).map(msg => msg.id)
     );
 
-    return _allMessages;
+    // Remove overlapping messages from cached messages
+    return cachedMessages.filter(msg => !streamingMessageIds.has(msg.id));
   }, [messagesQuery.data?.pages, streaming.streamingMessages]);
+
+  // Get streaming messages as array
+  const streamingMessages = useMemo(() => {
+    return Array.from(streaming.streamingMessages.values());
+  }, [streaming.streamingMessages]);
+
+  // console.log("prevMessages", prevMessages);
+  // console.log("streamingMessages", streamingMessages);
 
   return {
     // Messages data
-    messages: allMessages,
+    messages: prevMessages, // Cached/previous messages
+    streamingMessages,      // Current streaming messages
 
     // Query states
     isLoading: messagesQuery.isLoading,

@@ -83,6 +83,19 @@ const fetchNewerMessages = async (chatId: string, cursorDate: Date, limit: numbe
   });
 };
 
+/** check latest message status from given date */
+const fetchStreamingMessage = async (chatId: string, cursorDate: Date): Promise<Message | null> => {
+  return await prisma.message.findFirst({
+    where: {
+      chatId,
+      createdAt: { gt: cursorDate },
+      status: { in: [MessageStatus.STARTED, MessageStatus.STREAMING] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+  });
+};
+
 // Calculate sync date for React Query optimization
 // This prevents stale cache hits and enables efficient incremental loading
 const calculateSyncDate = (direction: "backward" | "forward", messages: Message[], cursorDate: string): string => {
@@ -482,12 +495,16 @@ export const messageRouter = router({
       }
 
       // Calculate sync date for React Query optimization
+      // if last page
+
       const syncDate = calculateSyncDate(direction, messages, cursor);
+      const streamingMessage = await fetchStreamingMessage(chatId, cursorDateTime);
 
       return {
         messages: messages as MessageType[],
         direction,
         syncDate,
+        streamingMessage,
       };
     }),
 
@@ -544,13 +561,6 @@ export const messageRouter = router({
     .mutation(async ({ input, ctx }) => {
       console.log(`🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId}${input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ''}`);
 
-
-      const res = await subscribeToMessageChunkStream(input.chatId, {
-        // fromTimestamp: input.fromTimestamp 
-      });
-
-      console.log("input");
-      console.log("res", res);
 
       // Return the async generator from subscribeToMessageChunkStream with optional timestamp
       return subscribeToMessageChunkStream(input.chatId, {

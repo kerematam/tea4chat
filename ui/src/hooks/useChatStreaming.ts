@@ -42,6 +42,7 @@ export const useChatStreaming = ({
 
   // Streaming state - separate from query cache
   const [streamingMessages, setStreamingMessages] = useState<Map<string, MessageType>>(new Map());
+  // console.log("streamingMessages", streamingMessages);
 
   // Streaming update handler - manages streaming state
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
@@ -156,6 +157,7 @@ export const useChatStreaming = ({
       // Process the Redis stream
       try {
         for await (const chunk of streamGenerator) {
+          console.log("listenToStreamMutation", chunk);
           handleStreamingUpdate(chunk as StreamChunk);
         }
       } catch (err) {
@@ -166,6 +168,8 @@ export const useChatStreaming = ({
         }
       } finally {
         // Stream listening ended
+        clearStreamingMessages();
+        onStreamEnd();
       }
     },
     onError: (err) => {
@@ -208,20 +212,21 @@ export const useChatStreaming = ({
     });
   }, [chatId, sendMessageMutation.isPending, abortStreamMutation]);
 
+
   // Manual sync function to trigger Redis stream listening
   const listenToStream = useCallback((fromTimestamp?: string) => {
-    if (!chatId || listenToStreamMutation.isPending) return;
+    if (!chatId || listenToStreamMutation.isPending || sendMessageMutation.isPending) return;
 
     listenToStreamMutation.mutate({
       chatId,
       ...(fromTimestamp && { fromTimestamp })
     });
-  }, [chatId, listenToStreamMutation]);
+  }, [chatId, listenToStreamMutation, sendMessageMutation.isPending]);
 
   return {
     // Streaming state
     streamingMessages,
-    
+
     // Mutation objects
     sendMessageMutation,
     listenToStreamMutation,

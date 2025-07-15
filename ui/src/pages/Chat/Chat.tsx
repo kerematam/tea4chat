@@ -18,18 +18,18 @@ export type SqlTable = {
   rows: Record<string, unknown>[];
 };
 
-const useMessagesGrouping = (messages: MessageType[]) => {
-  const lastUserMessage = messages.findLast(
-    (message) => message.from === "user"
-  );
-  const lastUserIndex = lastUserMessage
-    ? messages.lastIndexOf(lastUserMessage)
-    : -1;
-  const prevMessages =
-    lastUserIndex >= 0 ? messages.slice(0, lastUserIndex) : messages;
-  const newMessages = lastUserIndex >= 0 ? messages.slice(lastUserIndex) : [];
-  return [prevMessages, newMessages];
-};
+// const useMessagesGrouping = (messages: MessageType[]) => {
+//   const lastUserMessage = messages.findLast(
+//     (message) => message.from === "user"
+//   );
+//   const lastUserIndex = lastUserMessage
+//     ? messages.lastIndexOf(lastUserMessage)
+//     : -1;
+//   const prevMessages =
+//     lastUserIndex >= 0 ? messages.slice(0, lastUserIndex) : messages;
+//   const newMessages = lastUserIndex >= 0 ? messages.slice(lastUserIndex) : [];
+//   return [prevMessages, newMessages];
+// };
 
 const Chat = () => {
   const location = useLocation();
@@ -41,7 +41,8 @@ const Chat = () => {
 
   // Use our custom hook for all chat functionality
   const {
-    messages: allMessages,
+    messages: previousMessages,
+    streamingMessages,
     isLoading,
     error,
     fetchNextPage,
@@ -77,7 +78,8 @@ const Chat = () => {
     isFetching: isFetchingPreviousPage,
   });
 
-  const [prevMessages, newMessages] = useMessagesGrouping(allMessages);
+  // Handle messages and streaming messages separately
+  // const [previousMessages, newMessages] = useMessagesGrouping(messages);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -202,10 +204,14 @@ const Chat = () => {
               }}
             >
               {message.content}
+              <br />
+              {message.createdAt}
             </Box>
           ) : (
             <Box sx={{ width: "100%" }}>
               <AgentMessage message={message} />
+              <br />
+              {message.createdAt}
             </Box>
           )}
         </Box>
@@ -266,14 +272,15 @@ const Chat = () => {
           </Box>
         )}
 
-        {/* New messages section */}
+        {/* Streaming messages section */}
         <Box
           sx={{
             display: "flex",
             flexDirection: "column",
+            backgroundColor: "red",
           }}
         >
-          {renderMessages(newMessages)}
+          {renderMessages(streamingMessages)}
         </Box>
 
         {/* Previous messages section */}
@@ -281,9 +288,10 @@ const Chat = () => {
           sx={{
             display: "flex",
             flexDirection: "column",
+            backgroundColor: "blue",
           }}
         >
-          {renderMessages(prevMessages)}
+          {renderMessages(previousMessages)}
         </Box>
 
         {/* Load more messages trigger */}
