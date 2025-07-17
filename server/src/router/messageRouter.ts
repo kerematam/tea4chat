@@ -85,31 +85,31 @@ const fetchNewerMessages = async (chatId: string, cursorDate: Date, limit: numbe
 
 /** check latest message status from given date */
 const fetchStreamingMessage = async (chatId: string, cursorDate: Date): Promise<Message | null> => {
-  return await prisma.message.findFirst({
-    where: {
-      chatId,
-      createdAt: { gt: cursorDate },
-      status: { in: [MessageStatus.STARTED, MessageStatus.STREAMING] },
-    },
+  const latestMessage = await prisma.message.findFirst({
+    where: { chatId },
     orderBy: { createdAt: "desc" },
     take: 1,
   });
+
+  if (latestMessage?.status === MessageStatus.STARTED || latestMessage?.status === MessageStatus.STREAMING) {
+    return latestMessage;
+  }
+
+  return null;
 };
 
 // Calculate sync date for React Query optimization
 // This prevents stale cache hits and enables efficient incremental loading
 const calculateSyncDate = (direction: "backward" | "forward", messages: Message[], cursorDate: string): string => {
-  // For backward direction (fetching newer messages), use the newest message timestamp
-  // This establishes the sync point for future fetches
-  if (direction === "backward" && messages.length > 0) {
-    const lastMessage = messages.at(-1);
-    if (lastMessage) {
-      return lastMessage.createdAt.toISOString();
-    }
+  if (messages.length === 0) {
+    return cursorDate;
   }
 
-  // For forward direction or no messages, use the cursor date
-  return cursorDate;
+  if (direction === "backward") {
+    return messages.at(-1)!.createdAt.toISOString();
+  }
+
+  return messages[0]!.createdAt.toISOString();
 };
 
 // Helper function to determine which model to use
@@ -369,6 +369,7 @@ export const messageRouter = router({
                 status: MessageStatus.COMPLETED,
               },
             });
+            console.log("UPDATED AI MESSAGE", updatedAiMessage);
 
             // Emit the final complete message to both streams
             await dualEnqueue({

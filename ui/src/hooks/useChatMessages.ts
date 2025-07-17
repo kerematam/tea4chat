@@ -6,31 +6,31 @@ import useValueChange from "./useValueChange";
 
 /**
  * useChatMessages - A comprehensive hook for managing chat messages with real-time streaming
- * 
+ *
  * STREAMING STRATEGY:
  * This hook uses a hybrid approach for optimal performance:
- * 
+ *
  * 1. PRIMARY STREAMING (Fast & Direct):
  *    - Uses `trpc.message.sendWithStream` mutation for immediate streaming
  *    - This provides the fastest possible response as it streams directly from the AI provider
  *    - No Redis intermediary = minimal latency
- * 
+ *
  * 2. FALLBACK STREAMING (Redis-based):
  *    - Uses `trpc.message.listenToMessageChunkStream` for reconnection scenarios
  *    - This streams from Redis state, which is slower but more reliable for reconnections
  *    - Used when the primary stream is interrupted or for manual sync
- * 
+ *
  * 3. HISTORICAL MESSAGES:
  *    - Uses `trpc.message.getMessages.useInfiniteQuery` for paginated message history
  *    - Provides efficient loading of older messages with caching
  *    - Supports both forward and backward pagination
- * 
+ *
  * ARCHITECTURE:
  * - Combines streaming messages (temporary, in-memory) with cached messages (persistent)
  * - Deduplicates messages using a Map to prevent duplicates during streaming
  * - Manages streaming state separately from query cache for optimal performance
  * - Handles chat creation, message sending, stream abortion, and reconnection scenarios
- * 
+ *
  * This hook essentially wraps all chat message operations into a single, cohesive interface
  * that provides real-time streaming with reliable message persistence and pagination.
  */
@@ -49,11 +49,11 @@ export type StreamChunk =
   | { type: "userMessage"; message: MessageType; chatId: string }
   | { type: "aiMessageStart"; message: MessageType; chatId: string }
   | {
-    type: "aiMessageChunk";
-    messageId: string;
-    chunk: string;
-    chatId: string;
-  }
+      type: "aiMessageChunk";
+      messageId: string;
+      chunk: string;
+      chatId: string;
+    }
   | { type: "aiMessageComplete"; message: MessageType; chatId: string };
 
 interface UseChatMessagesProps {
@@ -62,13 +62,52 @@ interface UseChatMessagesProps {
   chunkHandlers?: {
     userMessage?: (message: MessageType) => void;
     aiMessageStart?: (message: MessageType) => void;
-    aiMessageChunk?: (messageId: string, fullContent: string, chatId: string) => void;
+    aiMessageChunk?: (
+      messageId: string,
+      fullContent: string,
+      chatId: string
+    ) => void;
     aiMessageComplete?: (message: MessageType) => void;
   };
 }
 
 // TODO: streaming only works on 4
 const QUERY_LIMIT = 10;
+
+// INFO: filter out duplicates with streaming messages from last user message
+const usePrevMessages = (
+  streaming: ReturnType<typeof useChatStreaming>,
+  pages: { messages: MessageType[] }[]
+) => {
+  const [streamingAiMessageId, streamingUserMessageId] = useMemo(() => {
+    let streamingAiMessageId, streamingUserMessageId;
+    for (const msg of streaming.streamingMessages.values()) {
+      if (msg.from === "assistant") streamingAiMessageId = msg.id;
+      if (msg.from === "user") streamingUserMessageId = msg.id;
+    }
+    return [streamingAiMessageId, streamingUserMessageId];
+  }, [streaming.streamingMessages]);
+
+  // Get cached messages and filter out duplicates with streaming messages
+  const prevMessages = useMemo(() => {
+    const streamingMessages = [streamingAiMessageId, streamingUserMessageId];
+    const cachedMessages = pages.toReversed().flatMap((page) => page?.messages);
+    if (!streamingAiMessageId && !streamingUserMessageId) return cachedMessages;
+
+    // INFO: filter out duplicates with streaming messages from last user message
+    const lastUserMessageIndex = cachedMessages.findLastIndex(
+      (msg) => msg.from === "user"
+    );
+    return [
+      ...cachedMessages.slice(0, lastUserMessageIndex),
+      ...cachedMessages
+        .slice(lastUserMessageIndex)
+        .filter((msg) => !streamingMessages.includes(msg.id)),
+    ];
+  }, [pages, streamingAiMessageId, streamingUserMessageId]);
+
+  return prevMessages;
+};
 
 export const useChatMessages = ({
   chatId,
@@ -99,13 +138,8 @@ export const useChatMessages = ({
       },
       // newer messages
       getPreviousPageParam: (firstPage) => {
-        if (firstPage === undefined) {
-          throw new Error(
-            "Newer messages should always requested from last page synch time."
-          );
-        }
-        return firstPage.syncDate;
-      }
+        return firstPage.messages.at(-1)?.createdAt || firstPage.syncDate;
+      },
     }
   );
 
@@ -115,15 +149,7 @@ export const useChatMessages = ({
     onChatCreated,
     chunkHandlers,
     utils,
-    onStreamEnd: () => {
-      // Stream ended - fetch new messages from server
-      if (chatId) {
-        messagesQuery.fetchPreviousPage();
-      }
-    },
-    onStreamingStateChange: () => {
-      // Handle streaming state changes if needed
-    },
+    onStreamEnd: () => messagesQuery.fetchPreviousPage(),
   });
 
   // Manual sync function to trigger Redis stream listening
@@ -137,12 +163,11 @@ export const useChatMessages = ({
     streaming.listenToStream(fromTimestamp);
   }, [chatId, streaming, messagesQuery.data?.pages]);
 
-
-  const streamingMessageId = messagesQuery.data?.pages?.[0]?.streamingMessage?.id;
+  const streamingMessageId =
+    messagesQuery.data?.pages?.[0]?.streamingMessage?.id;
   useValueChange(streamingMessageId, (value) => {
-    if (value) manualSync()
-  })
-
+    if (value) manualSync();
+  });
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
@@ -155,47 +180,26 @@ export const useChatMessages = ({
     return hasMoreMessagesToLoad && isNewerMessages;
   }, [messagesQuery.data?.pages]);
 
-  console.log("direction", messagesQuery.data?.pages[0]?.direction);
-
   // Use custom hook for window focus refresh instead of manual implementation
   useRefreshLatestOnFocus(messagesQuery, {
     enabled: !!chatId, // Only active when we have a chatId
     skipInitialLoad: true, // Skip refresh on initial load
   });
 
-  // Get cached messages and filter out duplicates with streaming messages
-  const prevMessages = useMemo(() => {
-    // Get cached messages from query
-    const cachedMessages = messagesQuery.data?.pages
-      ? [...messagesQuery.data.pages].reverse().flatMap((page) => page?.messages || [])
-      : [];
-
-    // If no streaming messages, just return cached messages
-    if (streaming.streamingMessages.size === 0) {
-      return cachedMessages;
-    }
-
-    // Get streaming message IDs to filter out duplicates
-    const streamingMessageIds = new Set(
-      Array.from(streaming.streamingMessages.values()).map(msg => msg.id)
-    );
-
-    // Remove overlapping messages from cached messages
-    return cachedMessages.filter(msg => !streamingMessageIds.has(msg.id));
-  }, [messagesQuery.data?.pages, streaming.streamingMessages]);
+  const prevMessages = usePrevMessages(
+    streaming,
+    messagesQuery.data?.pages || []
+  );
 
   // Get streaming messages as array
   const streamingMessages = useMemo(() => {
     return Array.from(streaming.streamingMessages.values());
   }, [streaming.streamingMessages]);
 
-  // console.log("prevMessages", prevMessages);
-  // console.log("streamingMessages", streamingMessages);
-
   return {
     // Messages data
     messages: prevMessages, // Cached/previous messages
-    streamingMessages,      // Current streaming messages
+    streamingMessages, // Current streaming messages
 
     // Query states
     isLoading: messagesQuery.isLoading,
@@ -223,4 +227,4 @@ export const useChatMessages = ({
     // Manual sync function for reconnection
     manualSync,
   };
-}; 
+};
