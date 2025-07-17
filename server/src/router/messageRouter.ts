@@ -1,18 +1,40 @@
-import { MessageStatus, PrismaClient, type Message, type ModelCatalog } from "@prisma/client";
+import {
+  MessageStatus,
+  PrismaClient,
+  type Message,
+  type ModelCatalog,
+} from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { FALLBACK_MODEL } from "../constants/defaultOwnerSettings";
-import { createAIProviderFromModel, type AIMessage, type AIProvider } from "../lib/ai-providers";
+import {
+  createAIProviderFromModel,
+  type AIMessage,
+  type AIProvider,
+} from "../lib/ai-providers";
 import { ErrorCode, STREAM_ERROR_MESSAGES } from "../lib/errors";
-import { createIsolatedStream, type IsolatedStreamCallbacks } from "../lib/isolated-stream";
+import {
+  createIsolatedStream,
+  type IsolatedStreamCallbacks,
+} from "../lib/isolated-stream";
 import { cacheHelpers } from "../lib/redis";
-import { createStreamQueue, subscribeToMessageChunkStream } from "../lib/redis-message";
-import { createStreamId, streamAbortRegistry } from "../lib/stream-abort-registry";
+import {
+  createStreamQueue,
+  subscribeToMessageChunkStream,
+} from "../lib/redis-message";
+import {
+  createStreamId,
+  streamAbortRegistry,
+} from "../lib/stream-abort-registry";
 import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
 
 export type StreamMessage = {
-  type: "userMessage" | "aiMessageStart" | "aiMessageChunk" | "aiMessageComplete";
+  type:
+    | "userMessage"
+    | "aiMessageStart"
+    | "aiMessageChunk"
+    | "aiMessageComplete";
   message?: any;
   messageId?: string;
   chunk?: string;
@@ -30,7 +52,6 @@ export type MessageType = {
   text: string;
 };
 
-
 const prisma = new PrismaClient();
 
 // Initialize OpenAI client
@@ -45,19 +66,23 @@ const prisma = new PrismaClient();
 
 /**
  * React Query optimization - using date-based cursor instead of invalidation
- * 
+ *
  * We avoid using query invalidation for chat messages because:
  * 1. Chat history is immutable (messages never change once created)
  * 2. Invalidation would be overkill and cause unnecessary re-fetches for all cached history
  * 3. We only need to fetch NEW messages, not re-fetch existing ones
- * 
+ *
  * Instead, we use a date-based cursor mechanism that "hacks" React Query's caching
  * by always providing a fresh cursor, preventing stale cache hits while allowing
  * efficient incremental loading.
  */
 
 // Helper functions for message fetching
-const fetchOlderMessages = async (chatId: string, cursorDate: Date, limit: number): Promise<Message[]> => {
+const fetchOlderMessages = async (
+  chatId: string,
+  cursorDate: Date,
+  limit: number
+): Promise<Message[]> => {
   const messages = await prisma.message.findMany({
     where: {
       chatId,
@@ -71,7 +96,11 @@ const fetchOlderMessages = async (chatId: string, cursorDate: Date, limit: numbe
   return messages.reverse();
 };
 
-const fetchNewerMessages = async (chatId: string, cursorDate: Date, limit: number): Promise<Message[]> => {
+const fetchNewerMessages = async (
+  chatId: string,
+  cursorDate: Date,
+  limit: number
+): Promise<Message[]> => {
   return await prisma.message.findMany({
     where: {
       chatId,
@@ -84,14 +113,20 @@ const fetchNewerMessages = async (chatId: string, cursorDate: Date, limit: numbe
 };
 
 /** check latest message status from given date */
-const fetchStreamingMessage = async (chatId: string, cursorDate: Date): Promise<Message | null> => {
+const fetchStreamingMessage = async (
+  chatId: string,
+  cursorDate: Date
+): Promise<Message | null> => {
   const latestMessage = await prisma.message.findFirst({
     where: { chatId },
     orderBy: { createdAt: "desc" },
     take: 1,
   });
 
-  if (latestMessage?.status === MessageStatus.STARTED || latestMessage?.status === MessageStatus.STREAMING) {
+  if (
+    latestMessage?.status === MessageStatus.STARTED ||
+    latestMessage?.status === MessageStatus.STREAMING
+  ) {
     return latestMessage;
   }
 
@@ -100,7 +135,11 @@ const fetchStreamingMessage = async (chatId: string, cursorDate: Date): Promise<
 
 // Calculate sync date for React Query optimization
 // This prevents stale cache hits and enables efficient incremental loading
-const calculateSyncDate = (direction: "backward" | "forward", messages: Message[], cursorDate: string): string => {
+const calculateSyncDate = (
+  direction: "backward" | "forward",
+  messages: Message[],
+  cursorDate: string
+): string => {
   if (messages.length === 0) {
     return cursorDate;
   }
@@ -250,16 +289,21 @@ export const messageRouter = router({
         const abortController = streamAbortRegistry.register(streamId);
 
         // Create streaming process function
-        const streamAIResponse = async ({ enqueue, close, error }: IsolatedStreamCallbacks<StreamMessage>) => {
+        const streamAIResponse = async ({
+          enqueue,
+          close,
+          error,
+        }: IsolatedStreamCallbacks<StreamMessage>) => {
           let aiProvider: undefined | AIProvider;
-          let redisStreamQueue: ReturnType<typeof createStreamQueue> | null = null;
+          let redisStreamQueue: ReturnType<typeof createStreamQueue> | null =
+            null;
 
           try {
             // Create Redis stream queue for persistent streaming (allows other clients to join)
             redisStreamQueue = createStreamQueue(chatId, {
               batchTimeMs: 1000,
               maxBatchSize: 100,
-              expireAfterSeconds: 3600 // 1 hour
+              expireAfterSeconds: 3600, // 1 hour
             });
 
             // Helper function to enqueue to both current stream and Redis stream
@@ -280,10 +324,12 @@ export const messageRouter = router({
 
             // Check if already aborted before starting
             if (abortController.signal.aborted) {
-              error(new TRPCError({
-                code: 'CLIENT_CLOSED_REQUEST',
-                message: STREAM_ERROR_MESSAGES.ABORTED_BEFORE_START
-              }));
+              error(
+                new TRPCError({
+                  code: "CLIENT_CLOSED_REQUEST",
+                  message: STREAM_ERROR_MESSAGES.ABORTED_BEFORE_START,
+                })
+              );
               return;
             }
 
@@ -304,10 +350,12 @@ export const messageRouter = router({
 
             // Check abort signal after async operation
             if (abortController.signal.aborted) {
-              error(new TRPCError({
-                code: 'CLIENT_CLOSED_REQUEST',
-                message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
-              }));
+              error(
+                new TRPCError({
+                  code: "CLIENT_CLOSED_REQUEST",
+                  message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING,
+                })
+              );
               return;
             }
 
@@ -321,27 +369,29 @@ export const messageRouter = router({
               }
             );
 
-            console.log("aiProvider created");
-
             // Convert conversation history to AI provider format
             const aiMessages: AIMessage[] = conversationHistory
-              .filter(msg => msg.content && msg.content.trim().length > 0)
-              .map(msg => ({
+              .filter((msg) => msg.content && msg.content.trim().length > 0)
+              .map((msg) => ({
                 role: msg.role as "user" | "assistant",
                 content: msg.content.trim(),
               }));
 
-            console.log(`Streaming with ${aiProvider.name} provider using model ${aiProvider.model}`);
+            console.log(
+              `Streaming with ${aiProvider.name} provider using model ${aiProvider.model}`
+            );
 
             // Stream the response using the AI provider abstraction
             for await (const chunk of aiProvider.streamResponse(aiMessages)) {
               // Check for abort signal during streaming
               if (abortController.signal.aborted) {
                 console.log(`${aiProvider.name} stream aborted`);
-                error(new TRPCError({
-                  code: 'CLIENT_CLOSED_REQUEST',
-                  message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING
-                }));
+                error(
+                  new TRPCError({
+                    code: "CLIENT_CLOSED_REQUEST",
+                    message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING,
+                  })
+                );
                 return;
               }
 
@@ -389,7 +439,6 @@ export const messageRouter = router({
 
             // Mark the stream as complete
             close();
-
           } catch (err) {
             console.error("Error in AI streaming process:", err);
 
@@ -397,34 +446,64 @@ export const messageRouter = router({
             if (err instanceof TRPCError) {
               error(err);
             } else {
-              const errorMessage = (err as any)?.message || 'Streaming error';
-              const providerName = aiProvider?.name || 'unknown';
+              const errorMessage = (err as any)?.message || "Streaming error";
+              const providerName = aiProvider?.name || "unknown";
 
               // Check for specific error patterns from AI providers
-              if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('Invalid API key')) {
-                error(new TRPCError({
-                  code: 'UNAUTHORIZED',
-                  message: `${providerName} API key not configured or invalid. Please check your API key in settings.`,
-                  cause: { errorCode: ErrorCode.API_KEY_INVALID, provider: providerName }
-                }));
-              } else if (errorMessage.includes('rate limit') || errorMessage.includes('Rate limit')) {
-                error(new TRPCError({
-                  code: 'TOO_MANY_REQUESTS',
-                  message: 'Rate limit exceeded. Please try again later.',
-                  cause: { errorCode: ErrorCode.RATE_LIMIT_EXCEEDED, provider: providerName }
-                }));
-              } else if (errorMessage.includes('quota') || errorMessage.includes('billing')) {
-                error(new TRPCError({
-                  code: 'FORBIDDEN',
-                  message: 'Quota exceeded. Please check your billing.',
-                  cause: { errorCode: ErrorCode.QUOTA_EXCEEDED, provider: providerName }
-                }));
+              if (
+                errorMessage.includes("API key") ||
+                errorMessage.includes("unauthorized") ||
+                errorMessage.includes("Invalid API key")
+              ) {
+                error(
+                  new TRPCError({
+                    code: "UNAUTHORIZED",
+                    message: `${providerName} API key not configured or invalid. Please check your API key in settings.`,
+                    cause: {
+                      errorCode: ErrorCode.API_KEY_INVALID,
+                      provider: providerName,
+                    },
+                  })
+                );
+              } else if (
+                errorMessage.includes("rate limit") ||
+                errorMessage.includes("Rate limit")
+              ) {
+                error(
+                  new TRPCError({
+                    code: "TOO_MANY_REQUESTS",
+                    message: "Rate limit exceeded. Please try again later.",
+                    cause: {
+                      errorCode: ErrorCode.RATE_LIMIT_EXCEEDED,
+                      provider: providerName,
+                    },
+                  })
+                );
+              } else if (
+                errorMessage.includes("quota") ||
+                errorMessage.includes("billing")
+              ) {
+                error(
+                  new TRPCError({
+                    code: "FORBIDDEN",
+                    message: "Quota exceeded. Please check your billing.",
+                    cause: {
+                      errorCode: ErrorCode.QUOTA_EXCEEDED,
+                      provider: providerName,
+                    },
+                  })
+                );
               } else {
-                error(new TRPCError({
-                  code: 'INTERNAL_SERVER_ERROR',
-                  message: errorMessage,
-                  cause: { errorCode: ErrorCode.PROVIDER_UNAVAILABLE, provider: providerName }
-                }));
+                error(
+                  new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: errorMessage,
+                    cause: {
+                      errorCode: ErrorCode.PROVIDER_UNAVAILABLE,
+                      provider: providerName,
+                    },
+                  })
+                );
               }
             }
           } finally {
@@ -445,7 +524,6 @@ export const messageRouter = router({
         for await (const item of stream) {
           yield item;
         }
-
       } catch (error) {
         console.error("Error in message processing:", error);
         throw new Error(
@@ -499,7 +577,10 @@ export const messageRouter = router({
       // if last page
 
       const syncDate = calculateSyncDate(direction, messages, cursor);
-      const streamingMessage = await fetchStreamingMessage(chatId, cursorDateTime);
+      const streamingMessage = await fetchStreamingMessage(
+        chatId,
+        cursorDateTime
+      );
 
       return {
         messages: messages as MessageType[],
@@ -528,45 +609,50 @@ export const messageRouter = router({
         success: wasAborted,
         message: wasAborted
           ? "Stream aborted successfully"
-          : "No active stream found for this chat"
+          : "No active stream found for this chat",
       };
     }),
 
   // Get active streams for debugging/monitoring
-  getActiveStreams: withOwnerProcedure
-    .query(async ({ ctx }) => {
-      if (!ctx.owner) {
-        throw new Error("Owner not found");
-      }
+  getActiveStreams: withOwnerProcedure.query(async ({ ctx }) => {
+    if (!ctx.owner) {
+      throw new Error("Owner not found");
+    }
 
-      const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
-      // Filter streams that belong to this owner
-      const ownerStreams = allActiveStreams.filter(streamId =>
-        streamId.endsWith(`:${ctx.owner.id}`)
-      );
+    const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
+    // Filter streams that belong to this owner
+    const ownerStreams = allActiveStreams.filter((streamId) =>
+      streamId.endsWith(`:${ctx.owner.id}`)
+    );
 
-      return {
-        activeStreams: ownerStreams.map(streamId => ({
-          streamId,
-          chatId: streamId.split(':')[0]
-        }))
-      };
-    }),
+    return {
+      activeStreams: ownerStreams.map((streamId) => ({
+        streamId,
+        chatId: streamId.split(":")[0],
+      })),
+    };
+  }),
 
   // Listen to Redis message chunk stream for reconnection/page refresh scenarios
   listenToMessageChunkStream: withOwnerProcedure
-    .input(z.object({
-      chatId: z.string(),
-      fromTimestamp: z.string().optional(),
-    }))
+    .input(
+      z.object({
+        chatId: z.string(),
+        fromTimestamp: z.string().optional(),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
-      console.log(`🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId}${input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ''}`);
-
+      console.log(
+        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${
+          input.chatId
+        }${
+          input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ""
+        }`
+      );
 
       // Return the async generator from subscribeToMessageChunkStream with optional timestamp
       return subscribeToMessageChunkStream(input.chatId, {
-        // fromTimestamp: input.fromTimestamp 
+        // fromTimestamp: input.fromTimestamp
       });
     }),
-
-}); 
+});
