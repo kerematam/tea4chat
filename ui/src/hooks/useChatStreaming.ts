@@ -14,8 +14,8 @@ interface UseChatStreamingProps {
     aiMessageComplete?: (message: MessageType) => void;
   };
   utils: ReturnType<typeof trpc.useUtils>; // TRPC utils for invalidating chat list
-  onStreamEnd: () => void;
-  onStreamingStateChange: (isStreaming: boolean) => void;
+  onStreamEnd?: () => void;
+  onStreamingStateChange?: (isStreaming: boolean) => void;
 }
 
 /**
@@ -138,12 +138,12 @@ export const useChatStreaming = ({
       } finally {
         // Stream ended
         clearStreamingMessages();
-        onStreamEnd();
+        onStreamEnd?.();
       }
     },
     onError: (err) => {
       clearStreamingMessages();
-      onStreamingStateChange(false);
+      onStreamingStateChange?.(false);
       // Don't show error if user aborted the stream
       if (!isUserAbortError(err)) {
         error(`Failed to send message: ${err.message}`);
@@ -169,7 +169,7 @@ export const useChatStreaming = ({
       } finally {
         // Stream listening ended
         clearStreamingMessages();
-        onStreamEnd();
+        onStreamEnd?.();
       }
     },
     onError: (err) => {
@@ -183,7 +183,7 @@ export const useChatStreaming = ({
     onSuccess: (result) => {
       if (result.success) {
         clearStreamingMessages();
-        onStreamingStateChange(false);
+        onStreamingStateChange?.(false);
       }
     },
     onError: (err) => {

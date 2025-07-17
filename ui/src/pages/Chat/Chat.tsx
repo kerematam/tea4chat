@@ -13,24 +13,6 @@ import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import Landing from "./components/Landing/Landing";
 
-export type SqlTable = {
-  columns: string[];
-  rows: Record<string, unknown>[];
-};
-
-// const useMessagesGrouping = (messages: MessageType[]) => {
-//   const lastUserMessage = messages.findLast(
-//     (message) => message.from === "user"
-//   );
-//   const lastUserIndex = lastUserMessage
-//     ? messages.lastIndexOf(lastUserMessage)
-//     : -1;
-//   const prevMessages =
-//     lastUserIndex >= 0 ? messages.slice(0, lastUserIndex) : messages;
-//   const newMessages = lastUserIndex >= 0 ? messages.slice(lastUserIndex) : [];
-//   return [prevMessages, newMessages];
-// };
-
 const Chat = () => {
   const location = useLocation();
   const { id: chatId } = useParams<{ id: string }>();
@@ -277,7 +259,7 @@ const Chat = () => {
           sx={{
             display: "flex",
             flexDirection: "column",
-            backgroundColor: "red",
+            // backgroundColor: "red",
           }}
         >
           {renderMessages(streamingMessages)}
@@ -288,7 +270,7 @@ const Chat = () => {
           sx={{
             display: "flex",
             flexDirection: "column",
-            backgroundColor: "blue",
+            // backgroundColor: "green",
           }}
         >
           {renderMessages(previousMessages)}
