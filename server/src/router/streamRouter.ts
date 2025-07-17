@@ -1,9 +1,9 @@
-import { z } from "zod";
-import { router } from "../trpc";
-import { withOwnerProcedure } from "../procedures";
-import { cacheHelpers, redisPubSub, STREAM_TIMEOUT } from "../lib/redis";
 import { TRPCError } from "@trpc/server";
 import { randomBytes } from "crypto";
+import { z } from "zod";
+import { cacheHelpers, redisPubSub } from "../lib/redis";
+import { withOwnerProcedure } from "../procedures";
+import { router } from "../trpc";
 
 // Types for stream data
 export type StreamChunk = {
@@ -198,18 +198,7 @@ export const streamRouter = router({
       const { streamId } = input;
       const channel = `demo:stream:${streamId}`;
 
-      // Create a new Redis client for this streaming connection
-      const subscriber = new (await import("ioredis")).default({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
-        maxRetriesPerRequest: 3,
-        lazyConnect: true,
-      });
-
       try {
-        // Subscribe to the stream channel
-        await subscriber.subscribe(channel);
 
         // Check if stream is already active and get current state
         const currentStream = await cacheHelpers.streaming.getActiveStream(streamId);
