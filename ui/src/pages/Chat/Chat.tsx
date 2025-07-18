@@ -186,14 +186,10 @@ const Chat = () => {
               }}
             >
               {message.content}
-              <br />
-              {message.createdAt}
             </Box>
           ) : (
             <Box sx={{ width: "100%" }}>
               <AgentMessage message={message} />
-              <br />
-              {message.createdAt}
             </Box>
           )}
         </Box>
