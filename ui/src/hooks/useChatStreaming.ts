@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { isUserAbortError } from "../../../server/src/lib/errors";
+import { isUserAbortError } from "../utils";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
 import { MessageType, StreamChunk } from "./useChatMessages";
