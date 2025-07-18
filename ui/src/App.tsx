@@ -68,30 +68,33 @@ function App() {
                       }
                     />
                   </Route>
-                  <Route path="stream-test" element={<StreamTest />} />
-                  <Route
-                    path="stream-test-event-sourced"
-                    element={<StreamTestEventSourced />}
-                  />
-                  <Route
-                    path="stream-test-bullmq"
-                    element={<StreamTestBullMQ />}
-                  />
-                  <Route
-                    path="stream-test-simple"
-                    element={<StreamTestSimple />}
-                  />
-                  <Route
-                    path="stream-test-native"
-                    element={<StreamTestNative />}
-                  />
-                  <Route
-                    path="stream-test-message"
-                    element={<StreamTestMessage />}
-                  />
+                  {import.meta.env.MODE === "development" && (
+                    <>
+                      <Route path="stream-test" element={<StreamTest />} />
+                      <Route
+                        path="stream-test-event-sourced"
+                        element={<StreamTestEventSourced />}
+                      />
+                      <Route
+                        path="stream-test-bullmq"
+                        element={<StreamTestBullMQ />}
+                      />
+                      <Route
+                        path="stream-test-simple"
+                        element={<StreamTestSimple />}
+                      />
+                      <Route
+                        path="stream-test-native"
+                        element={<StreamTestNative />}
+                      />
+                      <Route
+                        path="stream-test-message"
+                        element={<StreamTestMessage />}
+                      />
+                    </>
+                  )}
 
                   <Route path="403" element={<Forbidden />} />
-
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
