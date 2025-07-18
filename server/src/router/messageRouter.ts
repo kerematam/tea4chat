@@ -28,6 +28,7 @@ import {
 } from "../lib/stream-abort-registry";
 import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
+import { checkFreeTierRateLimit } from "../lib/rate-limit";
 
 export type StreamMessage = {
   type:
@@ -235,6 +236,45 @@ export const messageRouter = router({
         }
       }
 
+      const modelToUse = await determineModelToUse({
+        modelId: input.modelId,
+        chatModel: chat.model,
+      });
+
+      // Get user's API keys from settings
+      const ownerSettings = await prisma.ownerSettings.findUnique({
+        where: { ownerId: ctx.owner.id },
+        select: { openaiApiKey: true, anthropicApiKey: true },
+      });
+
+      const shouldCheckRateLimit =
+        (modelToUse.provider === "openai" && !ownerSettings?.openaiApiKey) ||
+        (modelToUse.provider === "anthropic" &&
+          !ownerSettings?.anthropicApiKey);
+
+      // rate limti check if no api key is provided for openAi model or anthropic model
+      if (shouldCheckRateLimit) {
+        const rateLimitResult = await checkFreeTierRateLimit(
+          ctx.owner.id,
+          modelToUse.provider
+        );
+
+        if (rateLimitResult.isRateLimited) {
+          const timeLeftMinutes = rateLimitResult.timeLeftSeconds 
+            ? Math.ceil(rateLimitResult.timeLeftSeconds / 60)
+            : null;
+          
+          const message = timeLeftMinutes
+            ? `Rate limit exceeded. Please try again in ${timeLeftMinutes} minutes or setup API key in settings.`
+            : "Rate limit exceeded. Please try again later or setup API key in settings.";
+
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message,
+          });
+        }
+      }
+
       try {
         // Save user message to database
         const userMessage = await prisma.message.create({
@@ -245,13 +285,6 @@ export const messageRouter = router({
             chatId: chatId,
           },
         });
-
-        const modelToUse = await determineModelToUse({
-          modelId: input.modelId,
-          chatModel: chat.model,
-        });
-
-        console.log("modelToUse", modelToUse);
 
         // yield the user message first, before database updates so that the
         // client can see it immediately
@@ -341,12 +374,6 @@ export const messageRouter = router({
             });
 
             let fullContent = "";
-
-            // Get user's API keys from settings
-            const ownerSettings = await prisma.ownerSettings.findUnique({
-              where: { ownerId: ctx.owner.id },
-              select: { openaiApiKey: true, anthropicApiKey: true },
-            });
 
             // Check abort signal after async operation
             if (abortController.signal.aborted) {

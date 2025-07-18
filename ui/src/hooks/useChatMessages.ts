@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { trpc } from "../services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
+import usePrevMessages from "./usePrevMessages";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
 import useValueChange from "./useValueChange";
 
@@ -74,41 +75,6 @@ interface UseChatMessagesProps {
 // TODO: streaming only works on 4
 const QUERY_LIMIT = 10;
 
-// INFO: filter out duplicates with streaming messages from last user message
-const usePrevMessages = (
-  streaming: ReturnType<typeof useChatStreaming>,
-  pages: { messages: MessageType[] }[]
-) => {
-  const [streamingAiMessageId, streamingUserMessageId] = useMemo(() => {
-    let streamingAiMessageId, streamingUserMessageId;
-    for (const msg of streaming.streamingMessages.values()) {
-      if (msg.from === "assistant") streamingAiMessageId = msg.id;
-      if (msg.from === "user") streamingUserMessageId = msg.id;
-    }
-    return [streamingAiMessageId, streamingUserMessageId];
-  }, [streaming.streamingMessages]);
-
-  // Get cached messages and filter out duplicates with streaming messages
-  const prevMessages = useMemo(() => {
-    const streamingMessages = [streamingAiMessageId, streamingUserMessageId];
-    const cachedMessages = pages.toReversed().flatMap((page) => page?.messages);
-    if (!streamingAiMessageId && !streamingUserMessageId) return cachedMessages;
-
-    // INFO: filter out duplicates with streaming messages from last user message
-    const lastUserMessageIndex = cachedMessages.findLastIndex(
-      (msg) => msg.from === "user"
-    );
-    return [
-      ...cachedMessages.slice(0, lastUserMessageIndex),
-      ...cachedMessages
-        .slice(lastUserMessageIndex)
-        .filter((msg) => !streamingMessages.includes(msg.id)),
-    ];
-  }, [pages, streamingAiMessageId, streamingUserMessageId]);
-
-  return prevMessages;
-};
-
 export const useChatMessages = ({
   chatId,
   onChatCreated,
@@ -163,11 +129,12 @@ export const useChatMessages = ({
     streaming.listenToStream(fromTimestamp);
   }, [chatId, streaming, messagesQuery.data?.pages]);
 
-  const streamingMessageId =
-    messagesQuery.data?.pages?.[0]?.streamingMessage?.id;
-  useValueChange(streamingMessageId, (value) => {
-    if (value) manualSync();
-  });
+  useValueChange(
+    messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
+    (value) => {
+      if (value) manualSync();
+    }
+  );
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {

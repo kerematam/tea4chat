@@ -359,7 +359,7 @@ const Chat = () => {
           placeholder="Type your message here..."
           chatId={chatId}
           sendMessage={sendMessage}
-          isSending={isSending}
+          isSending={isSending || isListeningToStream}
           abortStream={abortStream}
         />
         {chatId && <ModelSelector chatId={chatId} />}
