@@ -17,18 +17,20 @@ import {
   createIsolatedStream,
   type IsolatedStreamCallbacks,
 } from "../lib/isolated-stream";
+import { checkFreeTierRateLimit } from "../lib/rate-limit";
 import { cacheHelpers } from "../lib/redis";
 import {
   createStreamQueue,
+  stopMessageChunkStream,
   subscribeToMessageChunkStream,
 } from "../lib/redis-message";
+import { redisUtil } from "../lib/redis-message/clients";
 import {
   createStreamId,
   streamAbortRegistry,
 } from "../lib/stream-abort-registry";
 import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
-import { checkFreeTierRateLimit } from "../lib/rate-limit";
 
 export type StreamMessage = {
   type:
@@ -410,16 +412,12 @@ export const messageRouter = router({
 
             // Stream the response using the AI provider abstraction
             for await (const chunk of aiProvider.streamResponse(aiMessages)) {
-              // Check for abort signal during streaming
-              if (abortController.signal.aborted) {
-                console.log(`${aiProvider.name} stream aborted`);
-                error(
-                  new TRPCError({
-                    code: "CLIENT_CLOSED_REQUEST",
-                    message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING,
-                  })
-                );
-                return;
+              // Check Redis stop flag for this chat
+              const stopKey = `stop-stream:${chatId}`;
+              const shouldStop = await redisUtil.exists(stopKey);
+              if (shouldStop) {
+                console.log(`🛑 Stop requested for chat ${chatId}. Halting AI response stream.`);
+                break;
               }
 
               if (chunk.content && !chunk.isComplete) {
@@ -446,7 +444,7 @@ export const messageRouter = router({
                 status: MessageStatus.COMPLETED,
               },
             });
-            console.log("UPDATED AI MESSAGE", updatedAiMessage);
+            // console.log("UPDATED AI MESSAGE", updatedAiMessage);
 
             // Emit the final complete message to both streams
             await dualEnqueue({
@@ -541,6 +539,10 @@ export const messageRouter = router({
             if (redisStreamQueue) {
               redisStreamQueue.cleanup();
             }
+
+            // Cleanup stop flag if it was set
+            const stopKey = `stop-stream:${chatId}`;
+            await redisUtil.del(stopKey);
           }
         };
 
@@ -629,8 +631,7 @@ export const messageRouter = router({
         throw new Error("Owner not found");
       }
 
-      const streamId = createStreamId(input.chatId, ctx.owner.id);
-      const wasAborted = streamAbortRegistry.abort(streamId);
+      const wasAborted = await stopMessageChunkStream(input.chatId);
 
       return {
         success: wasAborted,

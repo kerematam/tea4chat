@@ -157,7 +157,6 @@ export const useChatStreaming = ({
       // Process the Redis stream
       try {
         for await (const chunk of streamGenerator) {
-          console.log("listenToStreamMutation", chunk);
           handleStreamingUpdate(chunk as StreamChunk);
         }
       } catch (err) {
@@ -167,6 +166,7 @@ export const useChatStreaming = ({
           error(`Failed to listen to stream: ${(err as Error).message}`);
         }
       } finally {
+        // console.log("listenToStreamMutation finally");
         // Stream listening ended
         clearStreamingMessages();
         onStreamEnd?.();
@@ -205,12 +205,10 @@ export const useChatStreaming = ({
 
   // Abort stream function
   const abortStream = useCallback(() => {
-    if (!chatId || !sendMessageMutation.isPending) return;
+    if (!chatId) return;
 
-    abortStreamMutation.mutate({
-      chatId,
-    });
-  }, [chatId, sendMessageMutation.isPending, abortStreamMutation]);
+    abortStreamMutation.mutate({ chatId, });
+  }, [chatId, abortStreamMutation]);
 
 
   // Manual sync function to trigger Redis stream listening
