@@ -1,32 +1,31 @@
+import { authClient } from "@/services/auth/authClient";
+import { persister } from "@/services/queryClient";
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import EmailIcon from "@mui/icons-material/Email";
+import PersonIcon from "@mui/icons-material/Person";
 import {
+  Avatar,
   Box,
-  Typography,
-  Container,
+  Button,
   Card,
   CardContent,
-  Avatar,
-  Grid,
   Chip,
+  Container,
+  Grid,
   Skeleton,
-  Button,
+  Typography,
 } from "@mui/material";
-import { trpc } from "../../services/trpc";
-import PersonIcon from "@mui/icons-material/Person";
-import EmailIcon from "@mui/icons-material/Email";
-import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
-import ApiKeysCard from "./components/ApiKeysCard/ApiKeysCard";
-import ChatDataCard from "./components/ChatDataCard/ChatDataCard";
-import AnonymousSessionSync from "./components/AnonymousSessionSync/AnonymousSessionSync";
-import ThemeCard from "./components/ThemeCard/ThemeCard";
-import { authClient } from "@/services/auth/authClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { persister } from "@/services/queryClient";
+import { trpc } from "../../services/trpc";
+import AnonymousSessionSync from "./components/AnonymousSessionSync/AnonymousSessionSync";
+import ApiKeysCard from "./components/ApiKeysCard/ApiKeysCard";
+import ChatDataCard from "./components/ChatDataCard/ChatDataCard";
+import ThemeCard from "./components/ThemeCard/ThemeCard";
 
 const Settings = () => {
   const { data: profile, isLoading, error } = trpc.profile.useQuery();
   const queryClient = useQueryClient();
-  const utils = trpc.useUtils();
   const navigate = useNavigate();
 
   return (

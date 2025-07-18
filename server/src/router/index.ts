@@ -1,15 +1,16 @@
-import { z } from "zod";
+import { adminProcedure, withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
-import { adminProcedure, trackedProcedure, withOwnerProcedure } from "../procedures";
-import { trackerRouter } from "./trackerRouter";
 import { chatRouter } from "./chatRouter";
 import { messageRouter } from "./messageRouter";
 import { modelRouter } from "./modelRouter";
 import { settingsRouter } from "./settingsRouter";
 import { streamRouter } from "./streamRouter";
+// import { streamRouterBullMQ } from "./streamRouter.bullmq";
 import { streamRouterEventSourced } from "./streamRouter.event-sourced";
-import { getCookie } from "hono/cookie";
-import { auth } from "../auth";
+import { messageStreamRouter } from "./streamRouter.message";
+import { nativeStreamRouter } from "./streamRouter.native";
+// import { simpleStreamRouter } from "./streamRouter.simple";
+import { trackerRouter } from "./trackerRouter";
 
 export const appRouter = router({
   tracker: trackerRouter,
@@ -19,6 +20,10 @@ export const appRouter = router({
   settings: settingsRouter,
   stream: streamRouter,
   streamEventSourced: streamRouterEventSourced,
+  // streamBullMQ: streamRouterBullMQ,
+  // simple: simpleStreamRouter,
+  native: nativeStreamRouter,
+  messageStream: messageStreamRouter,
   // hello: withOwnerProcedure
   //   .input(z.object({ name: z.string().optional() }))
   //   .query(async ({ input, ctx }) => {

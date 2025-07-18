@@ -1,45 +1,43 @@
-import { CircularProgress } from "@mui/material";
-import { IconButton } from "@mui/material";
-import { Box } from "@mui/material";
-import { ChatTextField } from "../ChatTextField/ChatTextField";
+import { Box, IconButton } from "@mui/material";
 import { useState } from "react";
 import { trpc } from "../../services/trpc";
-import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
+import { ChatTextField } from "../ChatTextField/ChatTextField";
 
 import SendIcon from "@mui/icons-material/Send";
-import { useNavigate } from "react-router-dom";
+import StopIcon from "@mui/icons-material/Stop";
 
 export const ChatTextForm = ({
   placeholder,
   chatId,
+  sendMessage,
+  isSending,
+  abortStream,
 }: {
   placeholder?: string;
   chatId?: string;
+  sendMessage: (content: string, modelId?: string) => void;
+  isSending: boolean;
+  abortStream: () => void;
 }) => {
   const [question, setQuestion] = useState("");
   const { data: selectedModel } = trpc.model.getSelection.useQuery({ chatId });
   const modelId = selectedModel?.selected?.id;
-  const navigate = useNavigate();
-  const hookResult = useChatMessages({
-    chatId: chatId!,
-    chunkHandlers: {
-      userMessage: () => {
-        setQuestion("");
-      },
-    },
-    onChatCreated: ({ chatId }: { chatId: string }) => {
-      navigate(`/chat/${chatId}`, { replace: true });
-    },
-  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (question.trim() && !hookResult.isSending) {
-      hookResult.sendMessage(question.trim(), modelId);
+    if (question.trim() && !isSending) {
+      sendMessage(question.trim(), modelId);
+      setQuestion(""); // Clear the input after sending
     }
   };
 
-  const currentIsLoading = hookResult.isSending;
+  const handleAbort = () => {
+    if (isSending && chatId) {
+      abortStream();
+    }
+  };
+
+  const currentIsLoading = isSending;
 
   return (
     <Box
@@ -65,19 +63,20 @@ export const ChatTextForm = ({
         placeholder={placeholder}
       />
       <IconButton
-        type="submit"
+        type={currentIsLoading ? "button" : "submit"}
         color="primary"
-        disabled={currentIsLoading || !question.trim()}
+        disabled={!currentIsLoading && !question.trim()}
+        onClick={currentIsLoading ? handleAbort : undefined}
         sx={{
           p: "10px",
           "&:focus": { color: "text.primary" },
           alignSelf: "flex-end",
           minHeight: 28,
         }}
-        aria-label="send message"
+        aria-label={currentIsLoading ? "abort message" : "send message"}
       >
         {currentIsLoading ? (
-          <CircularProgress size={20} color="inherit" />
+          <StopIcon sx={{ fontSize: 20 }} />
         ) : (
           <SendIcon sx={{ fontSize: 20 }} />
         )}

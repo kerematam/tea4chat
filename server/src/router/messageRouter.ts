@@ -1,13 +1,48 @@
-import { z } from "zod";
-import { router } from "../trpc";
-import { withOwnerProcedure } from "../procedures";
-import { PrismaClient, type Message } from "@prisma/client";
-import { cacheHelpers } from "../lib/redis";
-import OpenAI from "openai";
-import Anthropic from "@anthropic-ai/sdk";
+import {
+  MessageStatus,
+  PrismaClient,
+  type Message,
+  type ModelCatalog,
+} from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { ErrorCode } from "../lib/errors";
-import { FALLBACK_MODEL, FALLBACK_MODEL_ID } from "../constants/defaultOwnerSettings";
+import { z } from "zod";
+import { FALLBACK_MODEL } from "../constants/defaultOwnerSettings";
+import {
+  createAIProviderFromModel,
+  type AIMessage,
+  type AIProvider,
+} from "../lib/ai-providers";
+import { ErrorCode, STREAM_ERROR_MESSAGES } from "../lib/errors";
+import {
+  createIsolatedStream,
+  type IsolatedStreamCallbacks,
+} from "../lib/isolated-stream";
+import { checkFreeTierRateLimit } from "../lib/rate-limit";
+import { cacheHelpers } from "../lib/redis";
+import {
+  createStreamQueue,
+  stopMessageChunkStream,
+  subscribeToMessageChunkStream,
+} from "../lib/redis-message";
+import { redisUtil } from "../lib/redis-message/clients";
+import {
+  createStreamId,
+  streamAbortRegistry,
+} from "../lib/stream-abort-registry";
+import { withOwnerProcedure } from "../procedures";
+import { router } from "../trpc";
+
+export type StreamMessage = {
+  type:
+    | "userMessage"
+    | "aiMessageStart"
+    | "aiMessageChunk"
+    | "aiMessageComplete";
+  message?: any;
+  messageId?: string;
+  chunk?: string;
+  chatId: string;
+};
 
 // TODO: type inference from prisma is not working, so we need to manually type
 // the message type for tRPC infinite query compatibility
@@ -19,7 +54,6 @@ export type MessageType = {
   from: string;
   text: string;
 };
-
 
 const prisma = new PrismaClient();
 
@@ -35,23 +69,28 @@ const prisma = new PrismaClient();
 
 /**
  * React Query optimization - using date-based cursor instead of invalidation
- * 
+ *
  * We avoid using query invalidation for chat messages because:
  * 1. Chat history is immutable (messages never change once created)
  * 2. Invalidation would be overkill and cause unnecessary re-fetches for all cached history
  * 3. We only need to fetch NEW messages, not re-fetch existing ones
- * 
+ *
  * Instead, we use a date-based cursor mechanism that "hacks" React Query's caching
  * by always providing a fresh cursor, preventing stale cache hits while allowing
  * efficient incremental loading.
  */
 
 // Helper functions for message fetching
-const fetchOlderMessages = async (chatId: string, cursorDate: Date, limit: number): Promise<Message[]> => {
+const fetchOlderMessages = async (
+  chatId: string,
+  cursorDate: Date,
+  limit: number
+): Promise<Message[]> => {
   const messages = await prisma.message.findMany({
     where: {
       chatId,
       createdAt: { lt: cursorDate },
+      status: MessageStatus.COMPLETED,
     },
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -60,31 +99,86 @@ const fetchOlderMessages = async (chatId: string, cursorDate: Date, limit: numbe
   return messages.reverse();
 };
 
-const fetchNewerMessages = async (chatId: string, cursorDate: Date, limit: number): Promise<Message[]> => {
+const fetchNewerMessages = async (
+  chatId: string,
+  cursorDate: Date,
+  limit: number
+): Promise<Message[]> => {
   return await prisma.message.findMany({
     where: {
       chatId,
       createdAt: { gt: cursorDate },
+      status: MessageStatus.COMPLETED,
     },
     orderBy: { createdAt: "asc" },
     take: limit,
   });
 };
 
-// Calculate sync date for React Query optimization
-// This prevents stale cache hits and enables efficient incremental loading
-const calculateSyncDate = (direction: "backward" | "forward", messages: Message[], cursorDate: string): string => {
-  // For backward direction (fetching newer messages), use the newest message timestamp
-  // This establishes the sync point for future fetches
-  if (direction === "backward" && messages.length > 0) {
-    const lastMessage = messages.at(-1);
-    if (lastMessage) {
-      return lastMessage.createdAt.toISOString();
-    }
+/** check latest message status from given date */
+const fetchStreamingMessage = async (
+  chatId: string,
+  cursorDate: Date
+): Promise<Message | null> => {
+  const latestMessage = await prisma.message.findFirst({
+    where: { chatId },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+  });
+
+  if (
+    latestMessage?.status === MessageStatus.STARTED ||
+    latestMessage?.status === MessageStatus.STREAMING
+  ) {
+    return latestMessage;
   }
 
-  // For forward direction or no messages, use the cursor date
-  return cursorDate;
+  return null;
+};
+
+// Calculate sync date for React Query optimization
+// This prevents stale cache hits and enables efficient incremental loading
+const calculateSyncDate = (
+  direction: "backward" | "forward",
+  messages: Message[],
+  cursorDate: string
+): string => {
+  if (messages.length === 0) {
+    return cursorDate;
+  }
+
+  if (direction === "backward") {
+    return messages.at(-1)!.createdAt.toISOString();
+  }
+
+  return messages[0]!.createdAt.toISOString();
+};
+
+// Helper function to determine which model to use
+const determineModelToUse = async ({
+  modelId,
+  chatModel,
+}: {
+  modelId?: string;
+  chatModel?: Pick<ModelCatalog, "provider" | "name"> | null;
+}): Promise<Pick<ModelCatalog, "provider" | "name">> => {
+  if (modelId) {
+    const model = await prisma.modelCatalog.findUnique({
+      where: { id: modelId },
+      select: { provider: true, name: true },
+    });
+
+    if (!model) throw new Error("Model not found");
+
+    return { provider: model.provider, name: model.name };
+  } else if (chatModel) {
+    return {
+      provider: chatModel.provider,
+      name: chatModel.name,
+    };
+  } else {
+    return FALLBACK_MODEL;
+  }
 };
 
 export const messageRouter = router({
@@ -118,6 +212,7 @@ export const messageRouter = router({
               orderBy: { createdAt: "asc" },
               take: 20,
             },
+            model: true,
           },
         });
         chatId = chat.id;
@@ -134,11 +229,51 @@ export const messageRouter = router({
               orderBy: { createdAt: "asc" },
               take: 20, // Get last 20 messages for context
             },
+            model: true,
           },
         });
 
         if (!chat) {
           throw new Error("Chat not found");
+        }
+      }
+
+      const modelToUse = await determineModelToUse({
+        modelId: input.modelId,
+        chatModel: chat.model,
+      });
+
+      // Get user's API keys from settings
+      const ownerSettings = await prisma.ownerSettings.findUnique({
+        where: { ownerId: ctx.owner.id },
+        select: { openaiApiKey: true, anthropicApiKey: true },
+      });
+
+      const shouldCheckRateLimit =
+        (modelToUse.provider === "openai" && !ownerSettings?.openaiApiKey) ||
+        (modelToUse.provider === "anthropic" &&
+          !ownerSettings?.anthropicApiKey);
+
+      // rate limti check if no api key is provided for openAi model or anthropic model
+      if (shouldCheckRateLimit) {
+        const rateLimitResult = await checkFreeTierRateLimit(
+          ctx.owner.id,
+          modelToUse.provider
+        );
+
+        if (rateLimitResult.isRateLimited) {
+          const timeLeftMinutes = rateLimitResult.timeLeftSeconds 
+            ? Math.ceil(rateLimitResult.timeLeftSeconds / 60)
+            : null;
+          
+          const message = timeLeftMinutes
+            ? `Rate limit exceeded. Please try again in ${timeLeftMinutes} minutes or setup API key in settings.`
+            : "Rate limit exceeded. Please try again later or setup API key in settings.";
+
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message,
+          });
         }
       }
 
@@ -153,37 +288,8 @@ export const messageRouter = router({
           },
         });
 
-        // Query the model from the database early in the process
-        let modelToUse: { provider: string; name: string } = FALLBACK_MODEL;
-        if (input.modelId) {
-          const model = await prisma.modelCatalog.findUnique({
-            where: { id: input.modelId },
-            select: { provider: true, name: true },
-          });
-
-          if (model) {
-            console.log("Found model:", model);
-            if (model.provider === "openai" || model.provider === "anthropic") {
-              modelToUse = {
-                provider: model.provider,
-                name: model.name,
-              };
-              console.log("Using model:", modelToUse);
-            } else {
-              console.log("Unsupported provider detected:", model.provider);
-              throw new Error(`Provider "${model.provider}" is not currently supported`);
-            }
-          } else {
-            console.log("Model not found, using fallback:", modelToUse);
-          }
-        }
-
-        // Ensure modelToUse is properly set
-        if (!modelToUse || !modelToUse.provider || !modelToUse.name) {
-          throw new Error("Invalid model configuration");
-        }
-
-        // Yield the user message first
+        // yield the user message first, before database updates so that the
+        // client can see it immediately
         yield {
           type: "userMessage" as const,
           message: userMessage as MessageType,
@@ -205,6 +311,7 @@ export const messageRouter = router({
         // Create a placeholder AI message in the database
         const aiMessage = await prisma.message.create({
           data: {
+            status: MessageStatus.STARTED,
             content: "",
             from: "assistant",
             text: "",
@@ -212,209 +319,240 @@ export const messageRouter = router({
           },
         });
 
-        // Yield the initial AI message
-        yield {
-          type: "aiMessageStart" as const,
-          message: aiMessage as MessageType,
-          chatId: chatId,
+        // Register this stream for potential abortion
+        const streamId = createStreamId(chatId, ctx.owner.id);
+        const abortController = streamAbortRegistry.register(streamId);
+
+        // Create streaming process function
+        const streamAIResponse = async ({
+          enqueue,
+          close,
+          error,
+        }: IsolatedStreamCallbacks<StreamMessage>) => {
+          let aiProvider: undefined | AIProvider;
+          let redisStreamQueue: ReturnType<typeof createStreamQueue> | null =
+            null;
+
+          try {
+            // Create Redis stream queue for persistent streaming (allows other clients to join)
+            redisStreamQueue = createStreamQueue(chatId, {
+              batchTimeMs: 1000,
+              maxBatchSize: 100,
+              expireAfterSeconds: 3600, // 1 hour
+            });
+
+            // Helper function to enqueue to both current stream and Redis stream
+            const dualEnqueue = async (message: StreamMessage) => {
+              // Enqueue to current client stream (real-time for initiating client)
+              enqueue(message);
+
+              // Enqueue to Redis stream (persistent for other clients/page refreshes)
+              await redisStreamQueue!.enqueue(message);
+            };
+
+            // First, enqueue the user message to Redis stream
+            await redisStreamQueue.enqueue({
+              type: "userMessage",
+              message: userMessage as MessageType,
+              chatId: chatId,
+            });
+
+            // Check if already aborted before starting
+            if (abortController.signal.aborted) {
+              error(
+                new TRPCError({
+                  code: "CLIENT_CLOSED_REQUEST",
+                  message: STREAM_ERROR_MESSAGES.ABORTED_BEFORE_START,
+                })
+              );
+              return;
+            }
+
+            // Emit the initial AI message to both streams
+            await dualEnqueue({
+              type: "aiMessageStart",
+              message: aiMessage as MessageType,
+              chatId: chatId,
+            });
+
+            let fullContent = "";
+
+            // Check abort signal after async operation
+            if (abortController.signal.aborted) {
+              error(
+                new TRPCError({
+                  code: "CLIENT_CLOSED_REQUEST",
+                  message: STREAM_ERROR_MESSAGES.ABORTED_DURING_PROCESSING,
+                })
+              );
+              return;
+            }
+
+            // Create AI provider using the abstraction
+            aiProvider = createAIProviderFromModel(
+              modelToUse,
+              ownerSettings || { openaiApiKey: null, anthropicApiKey: null },
+              {
+                maxTokens: 4096,
+                temperature: 0.7,
+              }
+            );
+
+            // Convert conversation history to AI provider format
+            const aiMessages: AIMessage[] = conversationHistory
+              .filter((msg) => msg.content && msg.content.trim().length > 0)
+              .map((msg) => ({
+                role: msg.role as "user" | "assistant",
+                content: msg.content.trim(),
+              }));
+
+            console.log(
+              `Streaming with ${aiProvider.name} provider using model ${aiProvider.model}`
+            );
+
+            // Stream the response using the AI provider abstraction
+            for await (const chunk of aiProvider.streamResponse(aiMessages)) {
+              // Check Redis stop flag for this chat
+              const stopKey = `stop-stream:${chatId}`;
+              const shouldStop = await redisUtil.exists(stopKey);
+              if (shouldStop) {
+                console.log(`🛑 Stop requested for chat ${chatId}. Halting AI response stream.`);
+                break;
+              }
+
+              if (chunk.content && !chunk.isComplete) {
+                fullContent += chunk.content;
+                await dualEnqueue({
+                  type: "aiMessageChunk",
+                  messageId: aiMessage.id,
+                  chunk: chunk.content,
+                  chatId: chatId,
+                });
+              }
+
+              if (chunk.isComplete) {
+                break;
+              }
+            }
+
+            // Update the AI message in the database with the complete content
+            const updatedAiMessage = await prisma.message.update({
+              where: { id: aiMessage.id },
+              data: {
+                content: fullContent,
+                text: fullContent,
+                status: MessageStatus.COMPLETED,
+              },
+            });
+            // console.log("UPDATED AI MESSAGE", updatedAiMessage);
+
+            // Emit the final complete message to both streams
+            await dualEnqueue({
+              type: "aiMessageComplete",
+              message: updatedAiMessage as MessageType,
+              chatId: chatId,
+            });
+
+            // Flush any remaining Redis stream events
+            await redisStreamQueue.cleanup();
+
+            // Invalidate chat cache - this will always run even if client disconnects
+            await Promise.all([
+              cacheHelpers.invalidateChat(chatId),
+              cacheHelpers.invalidateOwnerCache(ctx.owner.id),
+            ]);
+
+            // Mark the stream as complete
+            close();
+          } catch (err) {
+            console.error("Error in AI streaming process:", err);
+
+            // Convert provider-specific errors to TRPCError with custom data
+            if (err instanceof TRPCError) {
+              error(err);
+            } else {
+              const errorMessage = (err as any)?.message || "Streaming error";
+              const providerName = aiProvider?.name || "unknown";
+
+              // Check for specific error patterns from AI providers
+              if (
+                errorMessage.includes("API key") ||
+                errorMessage.includes("unauthorized") ||
+                errorMessage.includes("Invalid API key")
+              ) {
+                error(
+                  new TRPCError({
+                    code: "UNAUTHORIZED",
+                    message: `${providerName} API key not configured or invalid. Please check your API key in settings.`,
+                    cause: {
+                      errorCode: ErrorCode.API_KEY_INVALID,
+                      provider: providerName,
+                    },
+                  })
+                );
+              } else if (
+                errorMessage.includes("rate limit") ||
+                errorMessage.includes("Rate limit")
+              ) {
+                error(
+                  new TRPCError({
+                    code: "TOO_MANY_REQUESTS",
+                    message: "Rate limit exceeded. Please try again later.",
+                    cause: {
+                      errorCode: ErrorCode.RATE_LIMIT_EXCEEDED,
+                      provider: providerName,
+                    },
+                  })
+                );
+              } else if (
+                errorMessage.includes("quota") ||
+                errorMessage.includes("billing")
+              ) {
+                error(
+                  new TRPCError({
+                    code: "FORBIDDEN",
+                    message: "Quota exceeded. Please check your billing.",
+                    cause: {
+                      errorCode: ErrorCode.QUOTA_EXCEEDED,
+                      provider: providerName,
+                    },
+                  })
+                );
+              } else {
+                error(
+                  new TRPCError({
+                    code: "INTERNAL_SERVER_ERROR",
+                    message: errorMessage,
+                    cause: {
+                      errorCode: ErrorCode.PROVIDER_UNAVAILABLE,
+                      provider: providerName,
+                    },
+                  })
+                );
+              }
+            }
+          } finally {
+            // Always cleanup both streams when done
+            streamAbortRegistry.cleanup(streamId);
+
+            // Cleanup Redis stream queue
+            if (redisStreamQueue) {
+              redisStreamQueue.cleanup();
+            }
+
+            // Cleanup stop flag if it was set
+            const stopKey = `stop-stream:${chatId}`;
+            await redisUtil.del(stopKey);
+          }
         };
 
-        let fullContent = "";
+        // Create isolated iterator with streaming process, so that if request drops; request can still complete
+        const stream = createIsolatedStream<StreamMessage>(streamAIResponse);
 
-        // Get user's API keys from settings
-        const ownerSettings = await prisma.ownerSettings.findUnique({
-          where: { ownerId: ctx.owner.id },
-          select: { openaiApiKey: true, anthropicApiKey: true },
-        });
-
-        // Determine the provider from the model query result
-        const selectedProvider = input.modelId ?
-          (await prisma.modelCatalog.findUnique({
-            where: { id: input.modelId },
-            select: { provider: true },
-          }))?.provider || "openai" : "openai";
-
-        if (selectedProvider === "anthropic") {
-          console.log("Streaming with Anthropic API");
-
-          // Use user's API key if available, otherwise fall back to environment variable
-          const anthropicApiKey = ownerSettings?.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
-          if (!anthropicApiKey) {
-            throw new TRPCError({
-              code: 'UNAUTHORIZED',
-              message: 'Anthropic API key not configured. Please add your API key in settings.',
-              cause: { errorCode: ErrorCode.API_KEY_MISSING, provider: 'anthropic' }
-            });
-          }
-
-          // Create Anthropic client with user's API key
-          const userAnthropic = new Anthropic({
-            apiKey: anthropicApiKey,
-          });
-
-          // Convert and filter conversation history for Anthropic API
-          const anthropicMessages = conversationHistory
-            .filter(msg => msg.content && msg.content.trim().length > 0) // Filter out empty messages
-            .map(msg => ({
-              role: msg.role === "assistant" ? "assistant" as const : "user" as const,
-              content: msg.content.trim()
-            }));
-
-          try {
-            // Get streaming response from Anthropic
-            const stream = await userAnthropic.messages.create({
-              model: modelToUse.name,
-              messages: anthropicMessages,
-              max_tokens: 4096,
-              stream: true,
-            });
-
-            // Stream the response chunks from Anthropic
-            for await (const chunk of stream) {
-              if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-                const delta = chunk.delta.text;
-                fullContent += delta;
-
-                yield {
-                  type: "aiMessageChunk" as const,
-                  messageId: aiMessage.id,
-                  chunk: delta,
-                  chatId: chatId,
-                };
-              }
-            }
-          } catch (error) {
-            console.error("Anthropic API error:", error);
-
-            // Convert to TRPCError with custom data
-            const errorMessage = (error as any)?.message || 'Anthropic API error';
-            const statusCode = (error as any)?.status || (error as any)?.response?.status;
-
-            if (statusCode === 401) {
-              throw new TRPCError({
-                code: 'UNAUTHORIZED',
-                message: 'Invalid Anthropic API key. Please check your API key in settings.',
-                cause: { errorCode: ErrorCode.API_KEY_INVALID, provider: 'anthropic' }
-              });
-            } else if (statusCode === 429) {
-              throw new TRPCError({
-                code: 'TOO_MANY_REQUESTS',
-                message: 'Anthropic rate limit exceeded. Please try again later.',
-                cause: { errorCode: ErrorCode.RATE_LIMIT_EXCEEDED, provider: 'anthropic' }
-              });
-            } else if (statusCode === 402) {
-              throw new TRPCError({
-                code: 'FORBIDDEN',
-                message: 'Anthropic quota exceeded. Please check your billing.',
-                cause: { errorCode: ErrorCode.QUOTA_EXCEEDED, provider: 'anthropic' }
-              });
-            } else {
-              throw new TRPCError({
-                code: 'INTERNAL_SERVER_ERROR',
-                message: errorMessage,
-                cause: { errorCode: ErrorCode.PROVIDER_UNAVAILABLE, provider: 'anthropic' }
-              });
-            }
-          }
-        } else {
-          console.log("Streaming with OpenAI API");
-
-          // Use user's API key if available, otherwise fall back to environment variable
-          const openaiApiKey = ownerSettings?.openaiApiKey || process.env.OPENAI_API_KEY;
-          if (!openaiApiKey) {
-            throw new TRPCError({
-              code: 'UNAUTHORIZED',
-              message: 'OpenAI API key not configured. Please add your API key in settings.',
-              cause: { errorCode: ErrorCode.API_KEY_MISSING, provider: 'openai' }
-            });
-          }
-
-          // Create OpenAI client with user's API key
-          const userOpenAI = new OpenAI({
-            apiKey: openaiApiKey,
-          });
-
-          try {
-            // Get streaming response from OpenAI
-            const completion = await userOpenAI.chat.completions.create({
-              model: modelToUse.name,
-              messages: conversationHistory,
-              max_tokens: 4096,
-              temperature: 0.7,
-              stream: true,
-            });
-
-            // Stream the response chunks from OpenAI
-            for await (const chunk of completion) {
-              const delta = chunk.choices[0]?.delta?.content || "";
-              if (delta) {
-                fullContent += delta;
-
-                yield {
-                  type: "aiMessageChunk" as const,
-                  messageId: aiMessage.id,
-                  chunk: delta,
-                  chatId: chatId,
-                };
-              }
-            }
-          } catch (error) {
-            console.error("OpenAI API error:", error);
-
-            // Convert to TRPCError with custom data
-            const errorMessage = (error as any)?.message || 'OpenAI API error';
-            const statusCode = (error as any)?.status || (error as any)?.response?.status;
-
-            if (statusCode === 401) {
-              throw new TRPCError({
-                code: 'UNAUTHORIZED',
-                message: 'Invalid OpenAI API key. Please check your API key in settings.',
-                cause: { errorCode: ErrorCode.API_KEY_INVALID, provider: 'openai' }
-              });
-            } else if (statusCode === 429) {
-              throw new TRPCError({
-                code: 'TOO_MANY_REQUESTS',
-                message: 'OpenAI rate limit exceeded. Please try again later.',
-                cause: { errorCode: ErrorCode.RATE_LIMIT_EXCEEDED, provider: 'openai' }
-              });
-            } else if (statusCode === 402) {
-              throw new TRPCError({
-                code: 'FORBIDDEN',
-                message: 'OpenAI quota exceeded. Please check your billing.',
-                cause: { errorCode: ErrorCode.QUOTA_EXCEEDED, provider: 'openai' }
-              });
-            } else {
-              throw new TRPCError({
-                code: 'INTERNAL_SERVER_ERROR',
-                message: errorMessage,
-                cause: { errorCode: ErrorCode.PROVIDER_UNAVAILABLE, provider: 'openai' }
-              });
-            }
-          }
+        // Forward items to the client only while the connection is active
+        for await (const item of stream) {
+          yield item;
         }
-
-        // Update the AI message in the database with the complete content
-        const updatedAiMessage = await prisma.message.update({
-          where: { id: aiMessage.id },
-          data: {
-            content: fullContent,
-            text: fullContent,
-          },
-        });
-
-        // Yield the final complete message
-        yield {
-          type: "aiMessageComplete" as const,
-          message: updatedAiMessage as MessageType,
-          chatId: chatId,
-        };
-
-        // Invalidate chat cache
-        await Promise.all([
-          cacheHelpers.invalidateChat(chatId),
-          cacheHelpers.invalidateOwnerCache(ctx.owner.id),
-        ]);
-
       } catch (error) {
         console.error("Error in message processing:", error);
         throw new Error(
@@ -465,14 +603,84 @@ export const messageRouter = router({
       }
 
       // Calculate sync date for React Query optimization
+      // if last page
+
       const syncDate = calculateSyncDate(direction, messages, cursor);
+      const streamingMessage = await fetchStreamingMessage(
+        chatId,
+        cursorDateTime
+      );
 
       return {
         messages: messages as MessageType[],
         direction,
         syncDate,
+        streamingMessage,
       };
     }),
 
+  // Abort an active streaming operation
+  abortStream: withOwnerProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!ctx.owner) {
+        throw new Error("Owner not found");
+      }
 
-}); 
+      const wasAborted = await stopMessageChunkStream(input.chatId);
+
+      return {
+        success: wasAborted,
+        message: wasAborted
+          ? "Stream aborted successfully"
+          : "No active stream found for this chat",
+      };
+    }),
+
+  // Get active streams for debugging/monitoring
+  getActiveStreams: withOwnerProcedure.query(async ({ ctx }) => {
+    if (!ctx.owner) {
+      throw new Error("Owner not found");
+    }
+
+    const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
+    // Filter streams that belong to this owner
+    const ownerStreams = allActiveStreams.filter((streamId) =>
+      streamId.endsWith(`:${ctx.owner.id}`)
+    );
+
+    return {
+      activeStreams: ownerStreams.map((streamId) => ({
+        streamId,
+        chatId: streamId.split(":")[0],
+      })),
+    };
+  }),
+
+  // Listen to Redis message chunk stream for reconnection/page refresh scenarios
+  listenToMessageChunkStream: withOwnerProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        fromTimestamp: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      console.log(
+        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${
+          input.chatId
+        }${
+          input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ""
+        }`
+      );
+
+      // Return the async generator from subscribeToMessageChunkStream with optional timestamp
+      return subscribeToMessageChunkStream(input.chatId, {
+        // fromTimestamp: input.fromTimestamp
+      });
+    }),
+});

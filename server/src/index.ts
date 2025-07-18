@@ -1,9 +1,10 @@
-import { Hono } from 'hono';
 import { trpcServer } from '@hono/trpc-server';
-import { appRouter } from "./router";
-import type { Context } from "./context";
+import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import type { Context } from "./context";
+import { appRouter } from "./router";
 
+import { checkRedisHealth } from './lib/redis';
 import { pinoLogger } from './middleware/pino-logger';
 import authRoutes from './router/authRoutes';
 
@@ -49,6 +50,25 @@ app.use('/trpc/*', trpcServer({
   }
 }));
 
+// Add Redis health check during startup
+async function startupHealthCheck() {
+  console.log('🔍 Performing startup health checks...');
+  
+  // Check Redis health
+  const redisHealth = await checkRedisHealth();
+  
+  if (!redisHealth.redis || !redisHealth.pubsub) {
+    console.error('❌ Redis health check failed:', redisHealth.error);
+    console.log('⚠️  Application will start but Redis-dependent features may not work properly');
+    console.log('📝 Consider implementing graceful degradation for Redis-dependent features');
+  } else {
+    console.log('✅ Redis health check passed - all connections working');
+  }
+}
+
+// Call health check during startup
+startupHealthCheck().catch(console.error);
+
 // Start server
 // console.log(`Server starting at http://localhost:${port}`);
 
@@ -59,6 +79,28 @@ export default {
   idleTimeout: 255, // Maximum allowed by Bun (255 seconds = ~4.25 minutes)
   maxRequestBodySize: 1024 * 1024 * 10, // 10MB max request body
 };
+
+// Enhanced error handling for development
+if (process.env.NODE_ENV === 'development') {
+  // Increase stack trace limit
+  Error.stackTraceLimit = 100;
+  
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Log the full stack trace
+    if (reason instanceof Error) {
+      console.error('Full stack trace:', reason.stack);
+    }
+  });
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    console.error('Full stack trace:', error.stack);
+    // Don't exit in development to keep debugging
+  });
+}
 
 // Handle graceful shutdown
 process.on("SIGTERM", () => {

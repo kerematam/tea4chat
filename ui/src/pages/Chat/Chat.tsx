@@ -1,34 +1,17 @@
-import { Box, Container, Fab, Typography, Paper } from "@mui/material";
-import { useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { useInView } from "react-intersection-observer";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import SyncIcon from "@mui/icons-material/Sync";
+import { Box, Container, Fab, Paper, Typography } from "@mui/material";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
+import { useLocation } from "react-router-dom";
 import { ChatTextForm } from "../../components/ChatTextForm/ChatTextForm";
 import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
-import { useLocation } from "react-router-dom";
 
-import { useChatMessages, MessageType } from "../../hooks/useChatMessages";
+import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
+import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import Landing from "./components/Landing/Landing";
-
-export type SqlTable = {
-  columns: string[];
-  rows: Record<string, unknown>[];
-};
-
-const useMessagesGrouping = (messages: MessageType[]) => {
-  const lastUserMessage = messages.findLast(
-    (message) => message.from === "user"
-  );
-  const lastUserIndex = lastUserMessage
-    ? messages.lastIndexOf(lastUserMessage)
-    : -1;
-  const prevMessages =
-    lastUserIndex >= 0 ? messages.slice(0, lastUserIndex) : messages;
-  const newMessages = lastUserIndex >= 0 ? messages.slice(lastUserIndex) : [];
-  return [prevMessages, newMessages];
-};
 
 const Chat = () => {
   const location = useLocation();
@@ -38,22 +21,24 @@ const Chat = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Intersection observer for loading more messages - placed at the end of older messages
-  const { ref: loadMoreRef, inView } = useInView({
-    threshold: 0,
-    rootMargin: "50px",
-  });
-
   // Use our custom hook for all chat functionality
   const {
-    messages: allMessages,
+    messages: previousMessages,
+    streamingMessages,
     isLoading,
     error,
     fetchNextPage,
+    fetchPreviousPage,
     hasNextPage,
+    hasPreviousPage,
     isFetchingNextPage,
+    isFetchingPreviousPage,
     sendMessage,
     isSending,
+    abortStream,
+    isStreamingActive,
+    isListeningToStream,
+    manualSync,
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
@@ -61,14 +46,22 @@ const Chat = () => {
     },
   });
 
-  // Load older messages when intersection observer is triggered
-  useEffect(() => {
-    if (inView && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
-    }
-  }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // Infinite scroll for loading older messages
+  const { triggerRef: loadMoreRef } = useInfiniteScroll({
+    fetchMore: fetchNextPage,
+    hasMore: hasNextPage,
+    isFetching: isFetchingNextPage,
+  });
 
-  const [prevMessages, newMessages] = useMessagesGrouping(allMessages);
+  // Infinite scroll for loading newer messages
+  const { triggerRef: loadNewerRef } = useInfiniteScroll({
+    fetchMore: fetchPreviousPage,
+    hasMore: hasPreviousPage,
+    isFetching: isFetchingPreviousPage,
+  });
+
+  // Handle messages and streaming messages separately
+  // const [previousMessages, newMessages] = useMessagesGrouping(messages);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -145,6 +138,9 @@ const Chat = () => {
           <ChatTextForm
             placeholder="Start a new conversation..."
             chatId={chatId} // Will be undefined for new chat
+            sendMessage={sendMessage}
+            isSending={isSending}
+            abortStream={abortStream}
           />
           {/* ModelSelector only shown after chat is created */}
         </Box>
@@ -190,10 +186,14 @@ const Chat = () => {
               }}
             >
               {message.content}
+              <br />
+              {message.createdAt}
             </Box>
           ) : (
             <Box sx={{ width: "100%" }}>
               <AgentMessage message={message} />
+              <br />
+              {message.createdAt}
             </Box>
           )}
         </Box>
@@ -239,14 +239,30 @@ const Chat = () => {
         {/* Bottom reference for scroll to bottom */}
         <Box ref={bottomRef} />
 
-        {/* New messages section */}
+        {/* Load newer messages trigger - placed at bottom (visually) */}
+        {hasPreviousPage && (
+          <Box
+            ref={loadNewerRef}
+            sx={{
+              py: 1,
+              textAlign: "center",
+              color: "text.secondary",
+              fontSize: "0.875rem",
+            }}
+          >
+            {isFetchingPreviousPage ? "Loading newer messages..." : ""}
+          </Box>
+        )}
+
+        {/* Streaming messages section */}
         <Box
           sx={{
             display: "flex",
             flexDirection: "column",
+            // backgroundColor: "red",
           }}
         >
-          {renderMessages(newMessages)}
+          {renderMessages(streamingMessages)}
         </Box>
 
         {/* Previous messages section */}
@@ -254,9 +270,10 @@ const Chat = () => {
           sx={{
             display: "flex",
             flexDirection: "column",
+            // backgroundColor: "green",
           }}
         >
-          {renderMessages(prevMessages)}
+          {renderMessages(previousMessages)}
         </Box>
 
         {/* Load more messages trigger */}
@@ -291,6 +308,42 @@ const Chat = () => {
         </Fab>
       )}
 
+      {/* Manual sync button */}
+      {chatId && (
+        <Fab
+          size="small"
+          color={isStreamingActive ? "secondary" : "default"}
+          onClick={manualSync}
+          disabled={isListeningToStream}
+          sx={{
+            position: "absolute",
+            bottom: 180,
+            right: 16,
+            zIndex: 1000,
+            opacity: isStreamingActive ? 1 : 0.7,
+          }}
+          title={
+            isListeningToStream
+              ? "Syncing..."
+              : isStreamingActive
+              ? "Active stream - Click to sync"
+              : "Manual sync"
+          }
+        >
+          <SyncIcon
+            sx={{
+              animation: isListeningToStream
+                ? "spin 1s linear infinite"
+                : "none",
+              "@keyframes spin": {
+                "0%": { transform: "rotate(0deg)" },
+                "100%": { transform: "rotate(360deg)" },
+              },
+            }}
+          />
+        </Fab>
+      )}
+
       {/* Chat input and model selector */}
       <Box
         sx={{
@@ -305,7 +358,9 @@ const Chat = () => {
         <ChatTextForm
           placeholder="Type your message here..."
           chatId={chatId}
-          // onStreamingUpdate={handleStreamingUpdate}
+          sendMessage={sendMessage}
+          isSending={isSending || isListeningToStream}
+          abortStream={abortStream}
         />
         {chatId && <ModelSelector chatId={chatId} />}
       </Box>
