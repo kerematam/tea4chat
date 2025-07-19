@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
-import { isUserAbortError } from "../utils";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
+import { isUserAbortError } from "../utils";
 import { MessageType, StreamChunk } from "./useChatMessages";
 
 interface UseChatStreamingProps {
@@ -137,7 +137,12 @@ export const useChatStreaming = ({
         }
       } finally {
         // Stream ended
-        clearStreamingMessages();
+        // clearStreamingMessages();
+        // INFO: this is hack to clear streaming messages after 1 second
+        setTimeout(() => {
+          clearStreamingMessages();
+        }, 1000);
+
         onStreamEnd?.();
       }
     },
@@ -168,7 +173,12 @@ export const useChatStreaming = ({
       } finally {
         // console.log("listenToStreamMutation finally");
         // Stream listening ended
-        clearStreamingMessages();
+        // clearStreamingMessages();
+        // INFO: this is hack to clear streaming messages after 1 second
+        setTimeout(() => {
+          clearStreamingMessages();
+        }, 1000);
+
         onStreamEnd?.();
       }
     },
@@ -182,7 +192,7 @@ export const useChatStreaming = ({
   const abortStreamMutation = trpc.message.abortStream.useMutation({
     onSuccess: (result) => {
       if (result.success) {
-        clearStreamingMessages();
+        // clearStreamingMessages();
         onStreamingStateChange?.(false);
       }
     },
@@ -224,6 +234,7 @@ export const useChatStreaming = ({
   return {
     // Streaming state
     streamingMessages,
+    clearStreamingMessages,
 
     // Mutation objects
     sendMessageMutation,

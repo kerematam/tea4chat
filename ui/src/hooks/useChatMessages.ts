@@ -50,11 +50,11 @@ export type StreamChunk =
   | { type: "userMessage"; message: MessageType; chatId: string }
   | { type: "aiMessageStart"; message: MessageType; chatId: string }
   | {
-      type: "aiMessageChunk";
-      messageId: string;
-      chunk: string;
-      chatId: string;
-    }
+    type: "aiMessageChunk";
+    messageId: string;
+    chunk: string;
+    chatId: string;
+  }
   | { type: "aiMessageComplete"; message: MessageType; chatId: string };
 
 interface UseChatMessagesProps {
