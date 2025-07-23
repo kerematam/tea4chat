@@ -139,9 +139,9 @@ export const useChatStreaming = ({
         // Stream ended
         // clearStreamingMessages();
         // INFO: this is hack to clear streaming messages after 1 second
-        setTimeout(() => {
-          clearStreamingMessages();
-        }, 1000);
+        // setTimeout(() => {
+        //   clearStreamingMessages();
+        // }, 1000);
 
         onStreamEnd?.();
       }
@@ -175,9 +175,9 @@ export const useChatStreaming = ({
         // Stream listening ended
         // clearStreamingMessages();
         // INFO: this is hack to clear streaming messages after 1 second
-        setTimeout(() => {
-          clearStreamingMessages();
-        }, 1000);
+        // setTimeout(() => {
+        //   clearStreamingMessages();
+        // }, 1000);
 
         onStreamEnd?.();
       }

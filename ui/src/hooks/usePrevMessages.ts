@@ -3,8 +3,6 @@ import { MessageType } from "./useChatMessages";
 import { useChatStreaming } from "./useChatStreaming";
 
 /**
- * TODO: refactor/optimize this hook. Making common messages as seperate state
- * as Map might be better as it will automatically filter out duplicates.
  *
  * filter out duplicates with streaming messages from last user message
  * @param streaming - streaming instance
@@ -22,10 +20,27 @@ const usePrevMessages = (
     [streaming.streamingMessages.size]
   );
 
+  const cachedMessages = useMemo(() => 
+    pages.toReversed().flatMap((page) => page?.messages),
+    [pages]
+  );
+
   const prevMessages = useMemo(() => {
-    const cachedMessages = pages.toReversed().flatMap((page) => page?.messages);
-    return cachedMessages.filter((msg) => !streamingMessageIds.includes(msg.id))
-  }, [pages, streamingMessageIds]);
+    if (cachedMessages.length === 0) return [];
+    
+    const lastTwoMessages = cachedMessages.slice(-2);
+    const filteredLastTwo = lastTwoMessages.filter((msg) => 
+      !streamingMessageIds.includes(msg.id)
+    );
+    
+    // If no messages were filtered out, return the original array
+    if (filteredLastTwo.length === lastTwoMessages.length) {
+      return cachedMessages;
+    }
+    
+    const prevMessagesExceptLastTwo = cachedMessages.slice(0, -2);
+    return [...prevMessagesExceptLastTwo, ...filteredLastTwo];
+  }, [cachedMessages, streamingMessageIds]);
 
   return prevMessages;
 };

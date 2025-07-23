@@ -136,6 +136,11 @@ export const useChatMessages = ({
     }
   );
 
+  useValueChange(
+    messagesQuery.data?.pages?.[0]?.syncDate,
+    () => streaming.clearStreamingMessages()
+  );
+
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
     if (!messagesQuery.data?.pages?.length) return false;
