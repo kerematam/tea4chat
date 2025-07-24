@@ -1,18 +1,13 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
 import { isUserAbortError } from "../utils";
-import { MessageType, StreamChunk } from "./useChatMessages";
+import { StreamChunk } from "./useChatMessages";
 
 interface UseChatStreamingProps {
   chatId?: string;
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
-  chunkHandlers?: {
-    userMessage?: (message: MessageType) => void;
-    aiMessageStart?: (message: MessageType) => void;
-    aiMessageChunk?: (messageId: string, fullContent: string, chatId: string) => void;
-    aiMessageComplete?: (message: MessageType) => void;
-  };
+  onStreamChunk?: (chunk: StreamChunk) => void;
   utils: ReturnType<typeof trpc.useUtils>; // TRPC utils for invalidating chat list
   onStreamEnd?: () => void;
   onStreamingStateChange?: (isStreaming: boolean) => void;
@@ -25,101 +20,34 @@ interface UseChatStreamingProps {
  * 1. sendWithStream - Primary streaming mutation for new messages
  * 2. listenToMessageChunkStream - Fallback streaming for reconnection
  * 3. abortStream - Stream abortion functionality
- * 4. streamingMessages - In-memory streaming state management
- * 5. handleStreamingUpdate - Stream chunk processing
+ * 4. Stream chunk event emission (no state management)
  * 
- * Extracted from useChatMessages for better separation of concerns.
+ * State management is handled by useSyncMessages hook.
  */
 export const useChatStreaming = ({
   chatId,
   onChatCreated,
-  chunkHandlers,
+  onStreamChunk,
   utils,
   onStreamEnd,
   onStreamingStateChange,
 }: UseChatStreamingProps) => {
   const { error } = useNotify();
 
-  // Streaming state - separate from query cache
-  const [streamingMessages, setStreamingMessages] = useState<Map<string, MessageType>>(new Map());
-  // console.log("streamingMessages", streamingMessages);
+  // No state management - only event emission
 
-  // Streaming update handler - manages streaming state
+  // Streaming update handler - only emits events
   const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
-    switch (chunk.type) {
-      case "userMessage":
-        // If this is a new chat creation, notify parent
-        if (!chatId && chunk.chatId) {
-          utils.chat.getAll.invalidate();
-          onChatCreated?.({ chatId: chunk.chatId });
-        }
-
-        // Add user message to streaming state
-        setStreamingMessages(prev => {
-          const newMap = new Map(prev);
-          newMap.set(chunk.message.id, chunk.message);
-          return newMap;
-        });
-        chunkHandlers?.userMessage?.(chunk.message as MessageType);
-        break;
-
-      case "aiMessageStart":
-        // Add AI message to streaming state
-        setStreamingMessages(prev => {
-          const newMap = new Map(prev);
-          newMap.set(chunk.message.id, chunk.message);
-          return newMap;
-        });
-        chunkHandlers?.aiMessageStart?.(chunk.message as MessageType);
-        break;
-
-      case "aiMessageChunk": {
-        let fullContent = "";
-
-        // Update the AI message in streaming state
-        setStreamingMessages(prev => {
-          const existingMessage = prev.get(chunk.messageId);
-          if (existingMessage) {
-            const newMap = new Map(prev);
-            // Accumulate the chunk content from existing message content
-            const currentContent = existingMessage.content || "";
-            fullContent = currentContent + chunk.chunk;
-            const updatedMessage = {
-              ...existingMessage,
-              content: fullContent,
-              text: fullContent,
-            };
-            newMap.set(chunk.messageId, updatedMessage);
-            return newMap;
-          }
-          return prev;
-        });
-
-        chunkHandlers?.aiMessageChunk?.(chunk.messageId, fullContent, chunk.chatId);
-        break;
-      }
-
-      case "aiMessageComplete":
-        // Update with final complete message in streaming state
-        setStreamingMessages(prev => {
-          const newMap = new Map(prev);
-          newMap.set(chunk.message.id, chunk.message);
-          return newMap;
-        });
-        chunkHandlers?.aiMessageComplete?.(chunk.message as MessageType);
-        break;
-
-      default:
-        // Handle unexpected chunk types gracefully
-        console.warn("Unknown stream chunk type:", chunk);
-        break;
+    // Handle chat creation
+    if (chunk.type === "userMessage" && !chatId && chunk.chatId) {
+      utils.chat.getAll.invalidate();
+      onChatCreated?.({ chatId: chunk.chatId });
     }
-  }, [chatId, onChatCreated, utils.chat.getAll, chunkHandlers]);
 
-  // Clear streaming messages helper
-  const clearStreamingMessages = useCallback(() => {
-    setStreamingMessages(new Map());
-  }, []);
+    // Emit chunk event to parent
+    onStreamChunk?.(chunk);
+  }, [chatId, onChatCreated, utils.chat.getAll, onStreamChunk]);
+
 
   // Primary streaming mutation
   const sendMessageMutation = trpc.message.sendWithStream.useMutation({
@@ -147,7 +75,6 @@ export const useChatStreaming = ({
       }
     },
     onError: (err) => {
-      clearStreamingMessages();
       onStreamingStateChange?.(false);
       // Don't show error if user aborted the stream
       if (!isUserAbortError(err)) {
@@ -192,7 +119,6 @@ export const useChatStreaming = ({
   const abortStreamMutation = trpc.message.abortStream.useMutation({
     onSuccess: (result) => {
       if (result.success) {
-        // clearStreamingMessages();
         onStreamingStateChange?.(false);
       }
     },
@@ -232,10 +158,6 @@ export const useChatStreaming = ({
   }, [chatId, listenToStreamMutation, sendMessageMutation.isPending]);
 
   return {
-    // Streaming state
-    streamingMessages,
-    clearStreamingMessages,
-
     // Mutation objects
     sendMessageMutation,
     listenToStreamMutation,
@@ -251,8 +173,5 @@ export const useChatStreaming = ({
     isListeningToStream: listenToStreamMutation.isPending,
     isSending: sendMessageMutation.isPending,
     isAborting: abortStreamMutation.isPending,
-
-    // Streaming handler (still exposed for legacy compatibility if needed)
-    handleStreamingUpdate,
   };
 }; 

@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { trpc } from "../services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
-import usePrevMessages from "./usePrevMessages";
+import useSyncMessages from "./useSyncMessages";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
 import useValueChange from "./useValueChange";
 
@@ -109,11 +109,14 @@ export const useChatMessages = ({
     }
   );
 
+  // Sync messages hook
+  const { prevMessages, streamingMessages, handleStreamChunk } = useSyncMessages(messagesQuery.data?.pages || []);
+
   // Streaming hook
   const streaming = useChatStreaming({
     chatId,
     onChatCreated,
-    chunkHandlers,
+    onStreamChunk: handleStreamChunk,
     utils,
     onStreamEnd: () => messagesQuery.fetchPreviousPage(),
   });
@@ -136,10 +139,7 @@ export const useChatMessages = ({
     }
   );
 
-  useValueChange(
-    messagesQuery.data?.pages?.[0]?.syncDate,
-    () => streaming.clearStreamingMessages()
-  );
+  // Note: streaming messages are now managed in useSyncMessages
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
@@ -158,15 +158,7 @@ export const useChatMessages = ({
     skipInitialLoad: true, // Skip refresh on initial load
   });
 
-  const prevMessages = usePrevMessages(
-    streaming,
-    messagesQuery.data?.pages || []
-  );
-
-  // Get streaming messages as array
-  const streamingMessages = useMemo(() => {
-    return Array.from(streaming.streamingMessages.values());
-  }, [streaming.streamingMessages]);
+  // Messages are now managed by useSyncMessages
 
   return {
     // Messages data
