@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from "react";
 import { trpc } from "../services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
-import useSyncMessages from "./useSyncMessages";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
+import useSyncMessages from "./useSyncMessages";
 import useValueChange from "./useValueChange";
 
 /**
@@ -77,8 +77,7 @@ const QUERY_LIMIT = 10;
 
 export const useChatMessages = ({
   chatId,
-  onChatCreated,
-  chunkHandlers,
+  onChatCreated
 }: UseChatMessagesProps) => {
   const utils = trpc.useUtils();
 
@@ -110,7 +109,7 @@ export const useChatMessages = ({
   );
 
   // Sync messages hook
-  const { prevMessages, streamingMessages, handleStreamChunk } = useSyncMessages(messagesQuery.data?.pages || []);
+  const { prevMessages, streamingMessages, handleStreamChunk } = useSyncMessages(messagesQuery.data?.pages || [], chatId || '');
 
   // Streaming hook
   const streaming = useChatStreaming({
@@ -152,9 +151,10 @@ export const useChatMessages = ({
     return hasMoreMessagesToLoad && isNewerMessages;
   }, [messagesQuery.data?.pages]);
 
+
   // Use custom hook for window focus refresh instead of manual implementation
   useRefreshLatestOnFocus(messagesQuery, {
-    enabled: !!chatId, // Only active when we have a chatId
+    enabled: !!chatId && !streaming.isStreamingActive, // Only active when we have a chatId
     skipInitialLoad: true, // Skip refresh on initial load
   });
 
