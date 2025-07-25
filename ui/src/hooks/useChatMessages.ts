@@ -77,7 +77,7 @@ const QUERY_LIMIT = 10;
 
 export const useChatMessages = ({
   chatId,
-  onChatCreated
+  onChatCreated,
 }: UseChatMessagesProps) => {
   const utils = trpc.useUtils();
 
@@ -109,7 +109,8 @@ export const useChatMessages = ({
   );
 
   // Sync messages hook
-  const { prevMessages, streamingMessages, handleStreamChunk } = useSyncMessages(messagesQuery.data?.pages || [], chatId || '');
+  const { prevMessages, streamingMessages, handleStreamChunk } =
+    useSyncMessages(messagesQuery.data?.pages || [], chatId || "");
 
   // Streaming hook
   const streaming = useChatStreaming({
@@ -131,6 +132,7 @@ export const useChatMessages = ({
     streaming.listenToStream(fromTimestamp);
   }, [chatId, streaming, messagesQuery.data?.pages]);
 
+
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
     (value) => {
@@ -151,14 +153,11 @@ export const useChatMessages = ({
     return hasMoreMessagesToLoad && isNewerMessages;
   }, [messagesQuery.data?.pages]);
 
-
   // Use custom hook for window focus refresh instead of manual implementation
   useRefreshLatestOnFocus(messagesQuery, {
     enabled: !!chatId && !streaming.isStreamingActive, // Only active when we have a chatId
     skipInitialLoad: true, // Skip refresh on initial load
   });
-
-  // Messages are now managed by useSyncMessages
 
   return {
     // Messages data

@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useStreamingStore } from "../store/streamingStore";
 import { MessageType, StreamChunk } from "./useChatMessages";
-import useValueChange from "./useValueChange";
 
 /**
  * useSyncMessages - Manages synchronized messages with streaming state
@@ -19,47 +18,28 @@ const useSyncMessages = (
 ) => {
   const {
     streamingMessages: allStreamingMessages,
-    actions: { setStreamingMessages, handleStreamChunk: storeHandleStreamChunk },
+    actions: { handleStreamChunk: storeHandleStreamChunk },
   } = useStreamingStore();
 
-
-  // Get streaming messages for this specific chat
-  const streamingMessages = allStreamingMessages[chatId] || [];
-
-  // Cached messages from pages
-  const cachedMessages = useMemo(
+  const prevMessages = useMemo(
     () => pages.toReversed().flatMap((page) => page?.messages),
     [pages]
   );
 
-  // Find last user message index to determine streaming boundary
-  const lastUserMessageIndex = useMemo(
-    () => cachedMessages.findLastIndex((msg) => msg?.from === "user"),
-    [cachedMessages]
-  );
+  const messagesAfterLastUserMessage = useMemo(() => {
+    const index = prevMessages.findLastIndex((msg) => msg?.from === "user");
+    return index === -1 ? [] : prevMessages.slice(index);
+  }, [prevMessages]);
 
-  // Split messages: prevMessages (before last user) + streamingMessages (from last user)
-  const prevMessages = useMemo(() => {
-    if (lastUserMessageIndex === -1) return cachedMessages;
-    return cachedMessages.slice(0, lastUserMessageIndex);
-  }, [cachedMessages, lastUserMessageIndex]);
 
-  // TODO:
-  // - find better way without JSON.stringify
-  // - change with useOnChange approach
-  // Reset streaming messages when pages change
-  // useEffect(() => {
-  //   // no message to set yet from infinite query call
-  //   if (lastUserMessageIndex === -1 || !chatId) return;
+  const streamingMessages = useMemo(() => {
+    const rawStreamingMessages = allStreamingMessages[chatId] || [];
 
-  //   const messagesFromLastUser = cachedMessages.slice(lastUserMessageIndex);
-  //   setStreamingMessages(chatId, messagesFromLastUser);
-  // }, [cachedMessages, lastUserMessageIndex, chatId, setStreamingMessages]);
-  useValueChange(lastUserMessageIndex, () => {
-    if (lastUserMessageIndex === -1 || !chatId) return;
-    const messagesFromLastUser = cachedMessages.slice(lastUserMessageIndex);
-    setStreamingMessages(chatId, messagesFromLastUser);
-  });
+    // filter out messages that are already in prevMessages
+    return rawStreamingMessages.filter(
+      (msg) => !messagesAfterLastUserMessage.some((m) => m.id === msg.id)
+    );
+  }, [messagesAfterLastUserMessage, allStreamingMessages, chatId]);
 
   // Stream chunk handler
   const handleStreamChunk = useCallback(

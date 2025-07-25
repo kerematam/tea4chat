@@ -51,7 +51,6 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
       messageId: string,
       updater: (msg: MessageType) => MessageType
     ) => {
-      console.log("updateStreamingMessage called", { chatId, messageId });
       set((state) => ({
         streamingMessages: {
           ...state.streamingMessages,
@@ -63,7 +62,6 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
     },
 
     clearStreamingMessages: (chatId: string) => {
-      console.log("clearStreamingMessages called", { chatId });
       set((state) => ({
         streamingMessages: {
           ...state.streamingMessages,
@@ -73,22 +71,19 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
     },
 
     handleStreamChunk: (_chatId: string, chunk: StreamChunk) => {
-      console.log("handleStreamChunk called", { _chatId, chunk });
       const { actions } = get();
       const chatId = chunk.chatId;
       switch (chunk.type) {
         case "userMessage":
-          console.log("event: userMessage", chunk);
+          actions.clearStreamingMessages(chatId);
           actions.addStreamingMessage(chatId, chunk.message);
           break;
 
         case "aiMessageStart":
-          console.log("event: aiMessageStart", chunk);
           actions.addStreamingMessage(chatId, chunk.message);
           break;
 
         case "aiMessageChunk":
-          console.log("event: aiMessageChunk", chunk);
           actions.updateStreamingMessage(chatId, chunk.messageId, (msg) => ({
             ...msg,
             content: (msg.content || "") + chunk.chunk,
@@ -96,12 +91,10 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
           break;
 
         case "aiMessageComplete":
-          console.log("event: aiMessageComplete", chunk);
           actions.updateStreamingMessage(chatId, chunk.message.id, () => chunk.message);
           break;
 
         default:
-          console.log("event: unknown", chunk);
           console.warn("Unknown stream chunk type:", chunk);
           break;
       }
