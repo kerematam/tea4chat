@@ -64,13 +64,6 @@ export const useChatStreaming = ({
           error(`Failed to process stream: ${(err as Error).message}`);
         }
       } finally {
-        // Stream ended
-        // clearStreamingMessages();
-        // INFO: this is hack to clear streaming messages after 1 second
-        // setTimeout(() => {
-        //   clearStreamingMessages();
-        // }, 1000);
-
         onStreamEnd?.();
       }
     },
@@ -98,14 +91,6 @@ export const useChatStreaming = ({
           error(`Failed to listen to stream: ${(err as Error).message}`);
         }
       } finally {
-        // console.log("listenToStreamMutation finally");
-        // Stream listening ended
-        // clearStreamingMessages();
-        // INFO: this is hack to clear streaming messages after 1 second
-        // setTimeout(() => {
-        //   clearStreamingMessages();
-        // }, 1000);
-
         onStreamEnd?.();
       }
     },

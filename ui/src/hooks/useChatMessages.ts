@@ -1,3 +1,4 @@
+import { useStreamingStore } from "@/store/streamingStore";
 import { useCallback, useMemo } from "react";
 import { trpc } from "../services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
@@ -132,6 +133,14 @@ export const useChatMessages = ({
     streaming.listenToStream(fromTimestamp);
   }, [chatId, streaming, messagesQuery.data?.pages]);
 
+
+  // this clears the streaming messages when new messages comes from infinite query
+  const { actions } = useStreamingStore();
+  useValueChange(messagesQuery.data?.pages?.[0]?.syncDate, (value) => {
+    if (value && !streaming.isStreamingActive && chatId) {
+      actions.clearStreamingMessages(chatId);
+    }
+  });
 
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,

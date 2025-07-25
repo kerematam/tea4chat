@@ -42,7 +42,7 @@ const Chat = () => {
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
-      navigate(`/chat/${chatId}`, { replace: true });
+      navigate(`/chat/${chatId}`);
     },
   });
 
