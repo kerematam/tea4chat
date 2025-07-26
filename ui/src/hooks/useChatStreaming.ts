@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useNotify } from "../providers/NotificationProdiver/useNotify";
 import { trpc } from "../services/trpc";
 import { isUserAbortError } from "../utils";
@@ -48,13 +48,18 @@ export const useChatStreaming = ({
     onStreamChunk?.(chunk);
   }, [chatId, onChatCreated, utils.chat.getAll, onStreamChunk]);
 
+  useEffect(() => {
+    console.log("MOUNTED");
+  }, []);
 
   // Primary streaming mutation
   const sendMessageMutation = trpc.message.sendWithStream.useMutation({
     onSuccess: async (streamGenerator) => {
+    
       // Process the stream
       try {
         for await (const chunk of streamGenerator) {
+          console.log("sendMessageMutation success", chunk?.chatId);
           handleStreamingUpdate(chunk);
         }
       } catch (err) {
@@ -79,9 +84,11 @@ export const useChatStreaming = ({
   // Redis stream listening mutation for reconnection scenarios
   const listenToStreamMutation = trpc.message.listenToMessageChunkStream.useMutation({
     onSuccess: async (streamGenerator) => {
+     
       // Process the Redis stream
       try {
         for await (const chunk of streamGenerator) {
+          console.log("listenToStreamMutation success", chunk?.chatId);
           handleStreamingUpdate(chunk as StreamChunk);
         }
       } catch (err) {

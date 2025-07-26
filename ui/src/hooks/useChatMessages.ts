@@ -141,15 +141,12 @@ export const useChatMessages = ({
       actions.clearStreamingMessages(chatId);
     }
   });
-
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
     (value) => {
       if (value) manualSync();
     }
   );
-
-  // Note: streaming messages are now managed in useSyncMessages
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {

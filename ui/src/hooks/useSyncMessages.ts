@@ -53,8 +53,6 @@ const useSyncMessages = (
     [chatId, storeHandleStreamChunk, onStreamChunk]
   );
 
-  console.log("state streamingMessages", allStreamingMessages);
-
   return {
     prevMessages,
     streamingMessages,
