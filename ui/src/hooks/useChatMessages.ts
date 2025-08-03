@@ -119,7 +119,11 @@ export const useChatMessages = ({
     onChatCreated,
     onStreamChunk: handleStreamChunk,
     utils,
-    onStreamEnd: () => messagesQuery.fetchPreviousPage(),
+    // this is commented out because we should no longer need it as we update
+    // the react query cache on streamingStore on stream end with
+    // commitStreamingMessagesToQueryCache
+    //
+    // onStreamEnd: () => messagesQuery.fetchPreviousPage(),
   });
 
   // Manual sync function to trigger Redis stream listening
