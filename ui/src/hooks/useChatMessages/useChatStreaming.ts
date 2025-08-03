@@ -1,7 +1,7 @@
-import { useCallback, useEffect } from "react";
-import { useNotify } from "../providers/NotificationProdiver/useNotify";
-import { trpc } from "../services/trpc";
-import { isUserAbortError } from "../utils";
+import { useCallback } from "react";
+import { useNotify } from "@/providers/NotificationProdiver/useNotify";
+import { trpc } from "@/services/trpc";
+import { isUserAbortError } from "@/utils";
 import { StreamChunk } from "./useChatMessages";
 
 interface UseChatStreamingProps {

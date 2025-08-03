@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { MessageType, StreamChunk } from "../hooks/useChatMessages";
+import { MessageType, StreamChunk } from "../hooks/useChatMessages/useChatMessages";
 import { queryClient } from "@/services/queryClient";
 import { InfiniteData } from "@tanstack/react-query";
 

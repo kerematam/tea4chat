@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useStreamingStore } from "../store/streamingStore";
+import { useStreamingStore } from "@/store/streamingStore";
 import { MessageType, StreamChunk } from "./useChatMessages";
 
 /**

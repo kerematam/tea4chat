@@ -9,7 +9,7 @@ import { ChatTextForm } from "../../components/ChatTextForm/ChatTextForm";
 import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
 
-import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
+import { MessageType, useChatMessages } from "../../hooks/useChatMessages/useChatMessages";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import Landing from "./components/Landing/Landing";
 

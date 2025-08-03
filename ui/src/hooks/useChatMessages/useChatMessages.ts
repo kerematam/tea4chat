@@ -1,10 +1,10 @@
 import { useStreamingStore } from "@/store/streamingStore";
 import { useCallback, useMemo } from "react";
-import { trpc } from "../services/trpc";
+import { trpc } from "@/services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
 import useSyncMessages from "./useSyncMessages";
-import useValueChange from "./useValueChange";
+import useValueChange from "@/hooks/useValueChange";
 
 /**
  * useChatMessages - A comprehensive hook for managing chat messages with real-time streaming
