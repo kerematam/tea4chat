@@ -13,6 +13,14 @@ import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import Landing from "./components/Landing/Landing";
 
+const withChatId = (Component: React.ComponentType<{ chatId: string }>) => {
+  return (props: { chatId: string }) => {
+    const { id: chatId } = useParams<{ id: string }>();
+    return <Component key={chatId} {...props} />;
+  };
+};
+
+
 const Chat = () => {
   const location = useLocation();
   const { id: chatId } = useParams<{ id: string }>();
@@ -20,6 +28,10 @@ const Chat = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // useEffect(() => {
+  //   console.log("MOUNTED", chatId);
+  // }, []);
 
   // Use our custom hook for all chat functionality
   const {
@@ -364,4 +376,4 @@ const Chat = () => {
   );
 };
 
-export default Chat;
+export default withChatId(Chat);

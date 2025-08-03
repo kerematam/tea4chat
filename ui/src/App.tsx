@@ -19,8 +19,8 @@ import { TrpcProvider } from "./providers/TrpcProvider";
 import { persistOptions, queryClient } from "./services/queryClient";
 import ThemeProvider from "./theme/ThemeProvider";
 
+const Landing = lazy(() => import("./pages/Landing/Landing"));
 const Chat = lazy(() => import("./pages/Chat/Chat"));
-const ChatList = lazy(() => import("./pages/ChatList/ChatList"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AdminDashboard = lazy(() => import("./pages/Admin/AdminDashboard"));
 const Forbidden = lazy(() => import("./pages/Error/Forbidden"));
@@ -52,10 +52,10 @@ function App() {
             <Router>
               <Suspense fallback={<LoadingFallback />}>
                 <Routes>
-                  <Route path="/" element={<CommonLayout />}>
-                    <Route index element={<Chat />} />
-                    <Route path="chat/:id?" element={<Chat />} />
-                    <Route path="chat-list" element={<ChatList />} />
+                  <Route path="/" element={<Landing />} />
+                  <Route element={<CommonLayout />}>
+                    <Route path="chat" element={<Chat />} />
+                    <Route path="chat/:id" element={<Chat />} />
                     <Route path="settings" element={<Settings />} />
 
                     {/* Admin Routes */}

@@ -136,20 +136,19 @@ export const useChatMessages = ({
 
   // this clears the streaming messages when new messages comes from infinite query
   const { actions } = useStreamingStore();
-  useValueChange(messagesQuery.data?.pages?.[0]?.syncDate, (value) => {
-    if (value && !streaming.isStreamingActive && chatId) {
-      actions.clearStreamingMessages(chatId);
-    }
-  });
 
+  // // 
+  // useValueChange(messagesQuery.data?.pages?.[0]?.syncDate, (value) => {
+  //   if (value && !streaming.isStreamingActive && chatId) {
+  //     actions.clearStreamingMessages(chatId);
+  //   }
+  // });
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
     (value) => {
       if (value) manualSync();
     }
   );
-
-  // Note: streaming messages are now managed in useSyncMessages
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
