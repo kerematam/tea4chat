@@ -1,4 +1,4 @@
-import { useStreamingStore } from "@/store/streamingStore";
+import { useStreamingStore } from "./streamingStore";
 import { useCallback, useMemo } from "react";
 import { trpc } from "@/services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
