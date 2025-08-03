@@ -98,16 +98,32 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
           if (!oldData) return oldData;
           if (!messages || messages.length === 0) return oldData;
 
-          // Create a new page with streaming messages
+          // Create a Set of existing message IDs across all pages to prevent duplicates
+          const existingMessageIds = new Set<string>();
+          oldData.pages.forEach(page => {
+            page.messages?.forEach((msg: MessageType) => {
+              existingMessageIds.add(msg.id);
+            });
+          });
+
+          // Filter out messages that already exist in the cache
+          const newMessages = messages.filter(msg => !existingMessageIds.has(msg.id));
+          
+          if (newMessages.length === 0) {
+            console.log("No new messages to add - all messages already exist in cache");
+            return oldData; // No new messages to add
+          }
+
+          // Create a new page with only the new streaming messages
           const newPage = {
-            messages: messages,
+            messages: newMessages,
             direction: "forward",
-            syncDate: messages[messages.length - 1].createdAt,
+            syncDate: newMessages[newMessages.length - 1].createdAt,
             streamingMessage: null
           };
 
           // Update pageParams - add the latest message's createdAt to the beginning
-          const latestMessageDate = messages[messages.length - 1].createdAt;
+          const latestMessageDate = newMessages[newMessages.length - 1].createdAt;
           const updatedPageParams = [latestMessageDate, ...oldData.pageParams];
 
           return {
