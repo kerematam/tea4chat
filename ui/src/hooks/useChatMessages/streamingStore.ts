@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { MessageType, StreamChunk } from "./useChatMessages";
+import { StreamChunk } from "./useChatMessages";
+import type { MessageType } from "../types";
 import { queryClient } from "@/services/queryClient";
 import { InfiniteData } from "@tanstack/react-query";
 
@@ -83,7 +84,7 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
       if (!messages || messages.length === 0) return;
 
       const queryKey = [["message", "getMessages"], { "input": { "chatId": chatId }, "type": "infinite" }];
-      
+
       queryClient.setQueriesData<InfiniteData<any> | undefined>(
         {
           queryKey,
@@ -92,7 +93,7 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
         (oldData) => {
           console.log("oldData", oldData);
           console.log("streaming messages to add", messages);
-          
+
           if (!oldData) return oldData;
           if (!messages || messages.length === 0) return oldData;
 
@@ -106,7 +107,7 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
 
           // Filter out messages that already exist in the cache
           const newMessages = messages.filter(msg => !existingMessageIds.has(msg.id));
-          
+
           if (newMessages.length === 0) {
             console.log("No new messages to add - all messages already exist in cache");
             return oldData; // No new messages to add

@@ -1,5 +1,5 @@
 import { useStreamingStore } from "./streamingStore";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { trpc } from "@/services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
@@ -140,22 +140,18 @@ export const useChatMessages = ({
 
   // this clears the streaming messages when new messages comes from infinite query
   const { actions } = useStreamingStore();
-
-  // // 
-  // useValueChange(messagesQuery.data?.pages?.[0]?.syncDate, (value) => {
-  //   if (value && !streaming.isStreamingActive && chatId) {
-  //     actions.clearStreamingMessages(chatId);
-  //   }
-  // });
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
-    (value) => {
-      if (value) manualSync();
+    (streamingMessageId) => {
+      if (streamingMessageId) {
+        manualSync();
+      }
       else if (chatId) {
         actions.clearStreamingMessages(chatId);
       }
     }
   );
+
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
@@ -170,7 +166,7 @@ export const useChatMessages = ({
 
   // Use custom hook for window focus refresh instead of manual implementation
   useRefreshLatestOnFocus(messagesQuery, {
-    enabled: !!chatId && !streaming.isStreamingActive, // Only active when we have a chatId
+    enabled: !!chatId, // && !streaming.isActive, TODO: check if it breaks to trigger this during streaming
     skipInitialLoad: true, // Skip refresh on initial load
   });
 
@@ -185,7 +181,7 @@ export const useChatMessages = ({
     error: messagesQuery.error,
 
     // Streaming states
-    isStreamingActive: streaming.isStreamingActive,
+    isStreamingActive: streaming.isActive,
     isListeningToStream: streaming.isListeningToStream,
 
     // Pagination
