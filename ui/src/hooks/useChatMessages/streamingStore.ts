@@ -19,10 +19,8 @@ interface StreamingState {
   };
 }
 
-
-
 export const useStreamingStore = create<StreamingState>((set, get) => ({
-  streamingMessages: {},
+  streamingMessages: {} as Record<string, MessageType[]>, // why not just MessageType?
 
   actions: {
     setStreamingMessages: (chatId: string, messages: MessageType[]) => {
@@ -157,8 +155,8 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
 
         case "aiMessageComplete":
           actions.updateStreamingMessage(chatId, chunk.message.id, () => chunk.message);
-          actions.commitStreamingMessagesToQueryCache(chatId);
-          actions.clearStreamingMessages(chatId);
+          // actions.commitStreamingMessagesToQueryCache(chatId);
+          // actions.clearStreamingMessages(chatId);
           break;
 
         default:

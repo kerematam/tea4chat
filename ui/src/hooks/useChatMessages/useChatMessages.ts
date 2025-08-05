@@ -123,7 +123,7 @@ export const useChatMessages = ({
     // the react query cache on streamingStore on stream end with
     // commitStreamingMessagesToQueryCache
     //
-    // onStreamEnd: () => messagesQuery.fetchPreviousPage(),
+    onStreamEnd: () => messagesQuery.fetchPreviousPage(),
   });
 
   // Manual sync function to trigger Redis stream listening
@@ -151,6 +151,9 @@ export const useChatMessages = ({
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
     (value) => {
       if (value) manualSync();
+      else if (chatId) {
+        actions.clearStreamingMessages(chatId);
+      }
     }
   );
 

@@ -9,7 +9,7 @@ interface UseChatStreamingProps {
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
   onStreamChunk?: (chunk: StreamChunk) => void;
   utils: ReturnType<typeof trpc.useUtils>; // TRPC utils for invalidating chat list
-  onStreamEnd?: () => void;
+  onStreamEnd?: (chatId: string) => void;
   onStreamingStateChange?: (isStreaming: boolean) => void;
 }
 
@@ -30,7 +30,7 @@ export const useChatStreaming = ({
   onStreamChunk,
   utils,
   onStreamEnd,
-  onStreamingStateChange,
+  onStreamingStateChange
 }: UseChatStreamingProps) => {
   const { error } = useNotify();
 
@@ -52,7 +52,7 @@ export const useChatStreaming = ({
   // Primary streaming mutation
   const sendMessageMutation = trpc.message.sendWithStream.useMutation({
     onSuccess: async (streamGenerator) => {
-    
+
       // Process the stream
       try {
         for await (const chunk of streamGenerator) {
@@ -66,7 +66,7 @@ export const useChatStreaming = ({
           error(`Failed to process stream: ${(err as Error).message}`);
         }
       } finally {
-        onStreamEnd?.();
+        onStreamEnd?.(chatId!);
       }
     },
     onError: (err) => {
@@ -81,7 +81,7 @@ export const useChatStreaming = ({
   // Redis stream listening mutation for reconnection scenarios
   const listenToStreamMutation = trpc.message.listenToMessageChunkStream.useMutation({
     onSuccess: async (streamGenerator) => {
-     
+
       // Process the Redis stream
       try {
         for await (const chunk of streamGenerator) {
@@ -95,7 +95,7 @@ export const useChatStreaming = ({
           error(`Failed to listen to stream: ${(err as Error).message}`);
         }
       } finally {
-        onStreamEnd?.();
+        onStreamEnd?.(chatId!);
       }
     },
     onError: (err) => {
