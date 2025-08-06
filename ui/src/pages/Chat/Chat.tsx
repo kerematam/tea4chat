@@ -267,7 +267,7 @@ const Chat = () => {
           sx={{
             display: "flex",
             flexDirection: "column",
-            backgroundColor: "red",
+            // backgroundColor: "red",
           }}
         >
           {renderMessages(streamingMessages)}

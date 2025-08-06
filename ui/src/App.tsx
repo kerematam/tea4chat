@@ -8,12 +8,6 @@ import { lazy, Suspense } from "react";
 import { Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import AdminRoute from "./components/AdminRoute";
 import CommonLayout from "./layouts/Common";
-import { StreamTest } from "./pages/StreamTest/StreamTest";
-import { StreamTestBullMQ } from "./pages/StreamTest/StreamTestBullMQ";
-import { StreamTestEventSourced } from "./pages/StreamTest/StreamTestEventSourced";
-import StreamTestMessage from "./pages/StreamTest/StreamTestMessage";
-import StreamTestNative from "./pages/StreamTest/StreamTestNative";
-import StreamTestSimple from "./pages/StreamTest/StreamTestSimple";
 import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
 import { TrpcProvider } from "./providers/TrpcProvider";
 import { persistOptions, queryClient } from "./services/queryClient";
@@ -70,31 +64,6 @@ function App() {
                       }
                     />
                   </Route>
-                  {import.meta.env.MODE === "development" && (
-                    <>
-                      <Route path="stream-test" element={<StreamTest />} />
-                      <Route
-                        path="stream-test-event-sourced"
-                        element={<StreamTestEventSourced />}
-                      />
-                      <Route
-                        path="stream-test-bullmq"
-                        element={<StreamTestBullMQ />}
-                      />
-                      <Route
-                        path="stream-test-simple"
-                        element={<StreamTestSimple />}
-                      />
-                      <Route
-                        path="stream-test-native"
-                        element={<StreamTestNative />}
-                      />
-                      <Route
-                        path="stream-test-message"
-                        element={<StreamTestMessage />}
-                      />
-                    </>
-                  )}
 
                   <Route path="403" element={<Forbidden />} />
                   <Route path="*" element={<NotFound />} />

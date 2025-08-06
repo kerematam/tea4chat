@@ -2,7 +2,7 @@
 
 > **Audience**: Contributors who want to understand _how_ messages are streamed through the system and which building blocks they should touch (or leave alone).
 >
-> **Scope**: Production paths only.  Experimental files and PoCs live in `server/src/router/streamRouter.*` and are **not** covered here.
+> **Scope**: Production streaming system only. All experimental streaming implementations have been removed from the codebase.
 
 ---
 
@@ -120,9 +120,7 @@ File | Responsibility
 
 ## 7. Further Reading
 
-1. **Stream Controller API** – `docs/stream-controller.md` (high-level type-safe wrapper)
-2. **Event-Sourced Streaming** – `docs/event-sourcing-streams.md` (experimental PoC)
-3. **Abort Mechanism** – `docs/stream-abort-mechanism.md`
+1. **Abort Mechanism** – `docs/stream-abort-mechanism.md` (stream termination handling)
 
 ---
 

@@ -14,9 +14,7 @@ Tea4Chat is a real-time chat application with AI capabilities built with a moder
 
 ## Additional Documentation
 
-- **[Stream Controller System](./stream-controller.md)** - Type-safe streaming interface (experimental)
-- **[Event-Sourced Streaming](./event-sourcing-streams.md)** - Redis implementation details (experimental)
-- **[Stream Abort Mechanism](./stream-abort-mechanism.md)** - Stream termination handling (experimental)
+- **[Stream Abort Mechanism](./stream-abort-mechanism.md)** - Stream termination handling
 
 ## Quick Start
 
