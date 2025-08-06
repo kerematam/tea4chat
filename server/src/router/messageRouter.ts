@@ -34,10 +34,10 @@ import { router } from "../trpc";
 
 export type StreamMessage = {
   type:
-    | "userMessage"
-    | "aiMessageStart"
-    | "aiMessageChunk"
-    | "aiMessageComplete";
+  | "userMessage"
+  | "aiMessageStart"
+  | "aiMessageChunk"
+  | "aiMessageComplete";
   message?: any;
   messageId?: string;
   chunk?: string;
@@ -52,7 +52,7 @@ export type MessageType = {
   chatId: string;
   content: string;
   from: string;
-  text: string;
+  status: MessageStatus;
 };
 
 const prisma = new PrismaClient();
@@ -262,10 +262,10 @@ export const messageRouter = router({
         );
 
         if (rateLimitResult.isRateLimited) {
-          const timeLeftMinutes = rateLimitResult.timeLeftSeconds 
+          const timeLeftMinutes = rateLimitResult.timeLeftSeconds
             ? Math.ceil(rateLimitResult.timeLeftSeconds / 60)
             : null;
-          
+
           const message = timeLeftMinutes
             ? `Rate limit exceeded. Please try again in ${timeLeftMinutes} minutes or setup API key in settings.`
             : "Rate limit exceeded. Please try again later or setup API key in settings.";
@@ -671,10 +671,8 @@ export const messageRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       console.log(
-        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${
-          input.chatId
-        }${
-          input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ""
+        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId
+        }${input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ""
         }`
       );
 
