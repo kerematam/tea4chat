@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import Terminal from 'vite-plugin-terminal'
 
 // CSP Plugin for Development
 // function cspPlugin() {
@@ -37,6 +38,7 @@ export default defineConfig(() => {
     },
     plugins: [
       react(),
+      Terminal({ strip: true }),
       // cspPlugin(),
     ],
 

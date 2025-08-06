@@ -12,6 +12,7 @@ import { NotificationProvider } from "./providers/NotificationProdiver/Notificat
 import { TrpcProvider } from "./providers/TrpcProvider";
 import { persistOptions, queryClient } from "./services/queryClient";
 import ThemeProvider from "./theme/ThemeProvider";
+import "./logger";
 
 const Landing = lazy(() => import("./pages/Landing/Landing"));
 const Chat = lazy(() => import("./pages/Chat/Chat"));
