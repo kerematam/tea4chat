@@ -50,7 +50,7 @@ const Chat = () => {
     abortStream,
     isStreamingActive,
     isListeningToStream,
-    manualSync,
+    manualSync
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
@@ -151,7 +151,7 @@ const Chat = () => {
             placeholder="Start a new conversation..."
             chatId={chatId} // Will be undefined for new chat
             sendMessage={sendMessage}
-            isSending={isSending}
+            isSending={isStreamingActive}
             abortStream={abortStream}
           />
           {/* ModelSelector only shown after chat is created */}
@@ -367,7 +367,7 @@ const Chat = () => {
           placeholder="Type your message here..."
           chatId={chatId}
           sendMessage={sendMessage}
-          isSending={isSending || isListeningToStream}
+          isSending={isStreamingActive}
           abortStream={abortStream}
         />
         {chatId && <ModelSelector chatId={chatId} />}

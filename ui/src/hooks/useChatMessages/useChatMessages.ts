@@ -1,5 +1,5 @@
 import { useStreamingStore } from "./streamingStore";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { trpc } from "@/services/trpc";
 import { useChatStreaming } from "./useChatStreaming";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
