@@ -23,6 +23,7 @@ const Landing = lazy(() => import("./pages/Landing/Landing"));
 const Chat = lazy(() => import("./pages/Chat/Chat"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AdminDashboard = lazy(() => import("./pages/Admin/AdminDashboard"));
+const ResumableStream = lazy(() => import("./pages/Docs/ResumableStream"));
 const Forbidden = lazy(() => import("./pages/Error/Forbidden"));
 const NotFound = lazy(() => import("./pages/Error/NotFound"));
 
@@ -57,6 +58,7 @@ function App() {
                     <Route path="chat" element={<Chat />} />
                     <Route path="chat/:id" element={<Chat />} />
                     <Route path="settings" element={<Settings />} />
+                    <Route path="docs/resumable-stream" element={<ResumableStream />} />
 
                     {/* Admin Routes */}
                     <Route
