@@ -1,168 +1,129 @@
-# Tea4Chat Documentation
+# Tea4Chat – Streaming Architecture
 
-## Overview
-
-Tea4Chat is a real-time chat application with AI capabilities, featuring a sophisticated dual-mechanism streaming system that provides both high-performance direct streaming and resilient resumable streams.
-
-## Streaming Architecture
-
-### Hybrid Streaming System
-
-Tea4Chat implements a sophisticated hybrid streaming system that combines real-time direct streaming with resumable Redis-based streaming for optimal performance and reliability.
-
-#### Core Flow
-
-**Page Visit & Resumption Flow:**
-```
-User visits chat page
-       ↓
-1. Fetch existing messages (trpc.message.getMessages - infinite query)
-       ↓
-2. Check if streaming message exists in response
-       ↓
-   ┌─── Yes: Ongoing stream detected ───┐
-   │                                    │
-   │ 3. Start Redis stream listening    │
-   │    (trpc.message.listenToMessageChunkStream)
-   │    • Slower but resumable          │
-   │    • Throttled (1s intervals)      │
-   │                                    │
-   └────────────────────────────────────┘
-```
-
-**New Message Flow:**
-```
-User sends new message
-       ↓
-Direct streaming (trpc.message.sendWithStream)
-   • Fast, real-time response
-   • SSE chunks via synchronous request
-   • No Redis reads needed
-```
-
-#### Three Key Mechanisms
-
-**1. Message History (trpc.message.getMessages)**
-- Bi-directional infinite query with pagination
-- Loads previous messages and detects ongoing streams
-- Returns `streamingMessage` if a stream is currently active
-- Triggers Redis stream listening for resumption
-
-**2. Direct Streaming (trpc.message.sendWithStream)**
-- **Primary method** for new user messages
-- Synchronous request with SSE response chunks
-- Fastest possible streaming (direct from AI provider)
-- No Redis reads needed (writes still occur for other clients)
-- Used when user initiates the conversation
-
-**3. Redis Stream Fallback (trpc.message.listenToMessageChunkStream)**
-- **Fallback method** for connection recovery scenarios
-- Used when user visits page with ongoing stream (different device, page reload)
-- Reads from Redis Streams with throttled updates (1-second intervals)
-- Enables perfect stream resumption
-- Resource-efficient (limited Redis writes)
-
-#### When Each Method Is Used
-
-**Direct Streaming** (Primary - ~95% of cases):
-```typescript
-// User sends message → immediate fast streaming
-trpc.message.sendWithStream.mutate({
-  content: "Hello",
-  chatId: "123"
-})
-// → SSE chunks stream directly back
-```
-
-**Redis Stream Resumption** (Recovery scenarios):
-```typescript
-// User visits page → detects ongoing stream
-const messages = await trpc.message.getMessages.query({ chatId: "123" })
-if (messages.streamingMessage) {
-  // → Start listening to Redis stream for resumption
-  trpc.message.listenToMessageChunkStream.mutate({
-    chatId: "123",
-    fromTimestamp: messages.syncDate
-  })
-}
-```
-
-### Resource Optimization Strategy
-
-- **Redis reads are minimized**: Direct streaming avoids Redis reads for maximum speed
-- **Background Redis writes**: Data still written to Redis (throttled to 1-second intervals) for other clients
-- **On-demand resumption**: Redis streams only read when needed (page reload, device switch)
-- **Bi-directional pagination**: Efficient loading of message history with caching
+> **Audience**: Contributors who want to understand _how_ messages are streamed through the system and which building blocks they should touch (or leave alone).
+>
+> **Scope**: Production paths only.  Experimental files and PoCs live in `server/src/router/streamRouter.*` and are **not** covered here.
 
 ---
 
-## Experimental & Legacy Features
+## 1. Why a Hybrid Streaming System?
 
-The following features were experimental implementations or legacy systems that are not part of the current production architecture:
+A chat application has two _conflicting_ requirements:
 
-### 🎯 [StreamController System](./stream-controller.md)
-**High-level type-safe streaming interface - START HERE**
+1. **Ultra-low latency** for the user who sends a brand-new message.
+2. **Fault-tolerance & perfect resumption** when that user refreshes the page or opens the chat on a second device.
 
-The recommended way to work with streams:
-- Type-safe generic interface with full TypeScript support
-- Self-contained lifecycle management (push, stop, complete)
-- Smart stream initialization and recreation logic
-- Comprehensive usage patterns and real-world examples
-- Best practices and error handling patterns
+Pure HTTP streaming (SSE/WebSocket) solves the first problem but not the second, while a pure Redis Stream solves the second problem at the cost of additional latency/read-amplification.  Tea4Chat therefore combines both techniques and automatically picks the fastest viable path.
 
-### 📖 [Event-Sourced Streaming Guide](./event-sourcing-streams.md)
-**Lower-level Redis implementation details**
+```
+┌──────────────┐          ┌───────────────────────────┐
+│  Browser JS  │────SSE──▶│  messageRouter.sendWithStream │  (ultra-fast)
+└──────────────┘          └───────────────────────────┘
+          ▲                           │  1s batch writes
+          │          ┌────────────────▼─────────────────┐
+          │          │   Redis Stream  (per-chat)       │
+          │          └────────────────┬─────────────────┘
+          │                           │ XPENDING / XRANGE
+          │           (fallback)      ▼
+          │                    ┌──────────────┐
+          └────────────────────│  Browser JS  │  (re-opened tab)
+                               └──────────────┘
+```
 
-Deep dive into the underlying implementation:
-- Redis Streams architecture and internals
-- TTL management and cleanup strategies
-- Performance benefits and comparisons
-- Advanced monitoring and debugging techniques
-- Direct Redis integration examples
+*The first client receives the answer directly from the AI provider.  All other clients – or the same client after a refresh – replay the chunks from Redis.*
 
-### 🛑 [Stream Abort Mechanism](./stream-abort-mechanism.md)
-**User-initiated stream termination and error handling**
+---
 
-Comprehensive guide covering:
-- Graceful stream termination without error messages
-- Type-safe abort detection and error handling
-- Server-side abort registry and cleanup
-- UI integration with stop button functionality
-- Best practices and testing strategies
+## 2. Core Flows
 
-### 🚀 [Router Quick Start](../server/src/router/README.md)
-**Quick comparison and getting started guide**
+### 2.1 Page Visit & Resumption
 
-Covers:
-- Traditional vs Event Sourcing comparison
-- Quick start code examples
-- Available test UIs
-- Key benefits overview
+```
+User lands on /chat/:id
+        ↓
+① trpc.message.getMessages (infinite query)
+        ↓
+② Detects `streamingMessage`?
+       ├─ No → ✨  Nothing to resume, regular pagination
+       └─ Yes → ③ Start Redis listener (trpc.message.listenToMessageChunkStream)
+                      • 1 second throttling
+                      • Perfectly resumable from `messages.syncDate`
+```
 
-## Key Files
+### 2.2 New Message
 
-### Backend Implementation
-- **`server/src/router/messageRouter.ts`** - Main message routing with hybrid streaming mechanism
-  - `sendWithStream` - Direct streaming mutation
-  - `listenToMessageChunkStream` - Redis stream fallback
-  - `getMessages` - Message history with streaming detection
-- **`server/src/lib/redis-message/`** - Redis message streaming implementation
+```
+User types ↵ Enter
+        ↓
+trpc.message.sendWithStream.mutate({ content, chatId })
+        ↓   (SSE chunks, no Redis reads)
+UI renders chunks in real-time
+        ↓
+Background task writes chunks to Redis every 1 s
+```
 
-### Experimental Backend (Not in Production)
-- **`server/src/router/streamRouter.event-sourced.ts`** - Event-sourced streaming router (experimental)
-- **`server/src/lib/redis.event-sourcing.ts`** - Redis helpers and event sourcing logic (experimental)
+### 2.3 Abort / Stop
 
-### Frontend Implementation  
-- **`ui/src/hooks/useChatMessages/useChatMessages.ts`** - Main hook coordinating all streaming mechanisms
-- **`ui/src/hooks/useChatMessages/useChatStreaming.ts`** - TRPC mutation management for streaming
-- **`ui/src/hooks/useChatMessages/streamingStore.ts`** - Zustand store for streaming state
-- **`ui/src/hooks/useChatMessages/useSyncMessages.ts`** - Message synchronization logic
-- **`ui/src/pages/StreamTest/`** - Various streaming test UIs
+```
+User clicks "Stop" button
+        ↓
+trpc.message.abortStream.mutate({ chatId })
+        ↓
+• Sets flag in streamAbortRegistry
+• Isolated stream closes gracefully → UI marks message as INTERRUPTED
+```
 
-## Test URLs
+---
 
-- **Main Chat Interface**: `http://localhost:3000/` - Production chat interface
+## 3. When Does Each Mechanism Run?
 
-### Experimental Test URLs (Not Production)
-- **Event Sourcing Test**: `http://localhost:3000/stream-test-event-sourced` (experimental)
-- **Traditional Test**: `http://localhost:3000/stream-test` (experimental)
+| Scenario | Mechanism | Entry point |
+| -------- | --------- | ----------- |
+| Brand new message | Direct SSE | `sendWithStream` |
+| Page refresh while stream in‐flight | Redis replay | `listenToMessageChunkStream` |
+| Second device opens the chat | Redis replay | `listenToMessageChunkStream` |
+| User stops generation | Abort registry | `abortStream` |
+
+~95 % of all requests use the **direct SSE path**.
+
+---
+
+## 4. Server-Side Components (TL;DR)
+
+File | Responsibility
+---- | --------------
+`server/src/router/messageRouter.ts` | tRPC router exposing `sendWithStream`, `listenToMessageChunkStream`, `getMessages`, `abortStream`
+`server/src/lib/redis-message/message-streaming.ts` | AI provider → Redis chunk pipeline
+`server/src/lib/redis-message/stream-queue.ts` | 1 s batching, TTL handling
+`server/src/lib/stream-abort-registry.ts` | In-memory registry for cooperative cancellation
+
+> Tip: Start reading `messageRouter.ts` from bottom to top – the procedure definitions act as an index.
+
+---
+
+## 5. Resource Optimisation
+
+* **Write Coalescing** – Chunks are flushed to Redis at most **once per second** via `createStreamQueue` → drastically cuts write-amplification.
+* **Read-on-Demand** – Redis is only queried inside `listenToMessageChunkStream`; the hot path avoids any Redis read.
+* **TTL / Cleanup** – `utils/cleanup.ts` deletes old streams after 10 minutes of inactivity, guaranteeing bounded memory usage.
+* **Bi-directional Pagination** – `getMessages` supports both forward and backward pagination using date cursors, preventing cache invalidation storms.
+
+---
+
+## 6. Glossary
+
+* **Streaming Message** – A `Message` row whose status is `STARTED` or `STREAMING`.
+* **Chunk** – A partial AI response (string) sent to the UI as soon as it is produced.
+* **Sync Date** – The timestamp the UI should use to resume a stream after reconnecting.
+
+---
+
+## 7. Further Reading
+
+1. **Stream Controller API** – `docs/stream-controller.md` (high-level type-safe wrapper)
+2. **Event-Sourced Streaming** – `docs/event-sourcing-streams.md` (experimental PoC)
+3. **Abort Mechanism** – `docs/stream-abort-mechanism.md`
+
+---
+
+_Last updated: 2025-08-06_
