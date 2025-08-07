@@ -70,7 +70,31 @@ You can use Playwright directly to:
 - Test the complete user workflow
 
 **Config**: `ui/playwright.config.ts` - Configured to run against `http://localhost:5173`
-**Tests**: `ui/tests/` - Add your test files here
+**Tests**: `ui/tests/homepage-and-chat.spec.ts` - Homepage, navigation, and chat interface tests
+
+## Playwright MCP Server ✅ Configured
+Official Microsoft Playwright MCP server for Claude Code browser automation:
+
+**Status**: ✅ **Project-scoped configuration** (team-shareable)
+**Config**: `.claude.json` in project root
+**MCP Server**: `playwright` - Uses local Playwright installation in `./ui`
+
+**Claude Code can now**:
+- Control visible browser windows (not headless)
+- Navigate to your app pages and test functionality
+- Click buttons, fill forms, take screenshots
+- Verify streaming messages work correctly
+- Maintain session cookies and authentication
+- Use structured accessibility tree (faster than screenshots)
+
+**Benefits**:
+- **Official Microsoft package** (`@playwright/mcp@0.0.32`)
+- **Local installation**: Uses browsers installed in `./ui` folder  
+- **Visible browser**: See what Claude Code is doing, login manually if needed
+- **Fast & lightweight**: Uses DOM structure instead of pixel analysis
+
+**Testing Your Implementation**:
+You can now ask Claude Code to test your features by navigating to pages, filling forms, and verifying functionality automatically.
 
 
 ## Database & Infrastructure
