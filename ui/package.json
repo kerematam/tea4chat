@@ -8,7 +8,11 @@
     "build": "tsc -b && vite build",
     "build:unsafe": "vite build --mode production",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "playwright:install": "playwright install",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-musl": "4.9.5"
@@ -64,6 +68,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.54.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
@@ -72,6 +77,7 @@
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^15.14.0",
     "msw": "^2.7.0",
+    "playwright": "^1.54.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.18.2",
     "vite": "^6.0.5",

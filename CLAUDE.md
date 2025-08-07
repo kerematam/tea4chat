@@ -45,10 +45,36 @@ terminal.warn('Warning in terminal')
 - `http://localhost:5173/chat` - New chat (test streaming)
 - `http://localhost:5173/settings` - Settings page
 
+## Playwright Testing
+Playwright is set up for both automated testing and Claude Code browser automation:
+
+**Setup** (first time only):
+```bash
+cd ui && bun run playwright:install  # Install browsers
+```
+
+**Testing Commands**:
+```bash
+cd ui
+bun run test          # Run all tests
+bun run test:ui       # Run tests with UI mode
+bun run test:debug    # Debug mode for test development
+```
+
+**For Claude Code Usage**:
+You can use Playwright directly to:
+- Navigate to pages and test functionality  
+- Take screenshots for verification
+- Fill forms and click buttons
+- Verify streaming messages appear correctly
+- Test the complete user workflow
+
+**Config**: `ui/playwright.config.ts` - Configured to run against `http://localhost:5173`
+**Tests**: `ui/tests/` - Add your test files here
+
 
 ## Database & Infrastructure
 - PostgreSQL with Prisma ORM
 - Redis Streams for resumable message streaming and caching
 - Docker Compose for local development
-- BullMQ (experimental implementation for background jobs)
 
