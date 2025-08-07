@@ -14,7 +14,7 @@ import { persistOptions, queryClient } from "./services/queryClient";
 import ThemeProvider from "./theme/ThemeProvider";
 import "./logger";
 
-const Landing = lazy(() => import("./pages/Landing/Landing"));
+const HomePage = lazy(() => import("./pages/Home/HomePage"));
 const Chat = lazy(() => import("./pages/Chat/Chat"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AdminDashboard = lazy(() => import("./pages/Admin/AdminDashboard"));
@@ -48,8 +48,8 @@ function App() {
             <Router>
               <Suspense fallback={<LoadingFallback />}>
                 <Routes>
-                  <Route path="/" element={<Landing />} />
                   <Route element={<CommonLayout />}>
+                    <Route path="/" element={<HomePage />} />
                     <Route path="chat" element={<Chat />} />
                     <Route path="chat/:id" element={<Chat />} />
                     <Route path="settings" element={<Settings />} />

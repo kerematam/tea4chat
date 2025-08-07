@@ -4,28 +4,40 @@ test.describe('Homepage and Navigation', () => {
   test('homepage loads correctly', async ({ page }) => {
     await page.goto('/');
     
+    // Wait for the page to be fully loaded
+    await page.waitForLoadState('networkidle');
+    
     // Check that the page loads with correct title
     await expect(page).toHaveTitle('Tea 4 Chat');
     
     // Check for main heading
     await expect(page.getByRole('heading', { name: 'Tea 4 Chat' })).toBeVisible();
     
-    // Check for subtitle
-    await expect(page.getByRole('heading', { name: /Experience the perfect blend/i })).toBeVisible();
+    // Check for the chat form input
+    await expect(page.getByRole('textbox')).toBeVisible();
     
-    // Check for start chatting button
-    await expect(page.getByRole('button', { name: 'Start Chatting' })).toBeVisible();
+    // Check for navigation menu button (from CommonLayout)
+    await expect(page.getByRole('button', { name: 'menu' })).toBeVisible();
   });
 
-  test('can navigate to chat page via start button', async ({ page }) => {
+  test('can create new chat by submitting message', async ({ page }) => {
     await page.goto('/');
     
-    // Click the Start Chatting button
-    await page.getByRole('button', { name: 'Start Chatting' }).click();
+    // Wait for the page to be fully loaded
+    await page.waitForLoadState('networkidle');
     
-    // Verify we're on the chat page
-    await expect(page).toHaveURL('/chat');
-    await expect(page.getByRole('heading', { name: 'Start a New Chat' })).toBeVisible();
+    // Type a message in the textbox
+    const textbox = page.getByRole('textbox');
+    await textbox.fill('Hello, test message');
+    
+    // Submit the form (usually by pressing Enter or clicking submit button)
+    await textbox.press('Enter');
+    
+    // Wait for navigation to complete and verify we're on a chat page
+    await expect(page).toHaveURL(/\/chat\/[a-z0-9-]+$/);
+    
+    // The page should show the chat interface
+    await expect(page.getByRole('textbox', { name: 'Type your message here...' })).toBeVisible();
   });
 });
 
