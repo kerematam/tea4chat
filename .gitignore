@@ -86,3 +86,6 @@ server/.env
 server/.env.idea
 server/.env.test
 ui/.env
+
+# Claude Code project config (can be committed for team sharing)
+# .claude.json

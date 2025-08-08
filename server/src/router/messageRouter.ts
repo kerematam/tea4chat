@@ -53,6 +53,7 @@ export type MessageType = {
   content: string;
   from: string;
   status: MessageStatus;
+  text: string;
 };
 
 const prisma = new PrismaClient();
@@ -206,6 +207,7 @@ export const messageRouter = router({
             title: input.content,
             description: "",
             ownerId: ctx.owner.id,
+            ...(input.modelId ? { modelId: input.modelId } : {}),
           },
           include: {
             messages: {
@@ -236,6 +238,14 @@ export const messageRouter = router({
         if (!chat) {
           throw new Error("Chat not found");
         }
+      }
+
+      // If a modelId is provided, persist it as the chat's local model selection
+      if (input.modelId && chatId) {
+        await prisma.chat.update({
+          where: { id: chatId },
+          data: { modelId: input.modelId },
+        });
       }
 
       const modelToUse = await determineModelToUse({

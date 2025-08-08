@@ -12,16 +12,18 @@ export const ChatTextForm = ({
   sendMessage,
   isSending,
   abortStream,
+  overrideModelId,
 }: {
   placeholder?: string;
   chatId?: string;
   sendMessage: (content: string, modelId?: string) => void;
   isSending: boolean;
   abortStream: () => void;
+  overrideModelId?: string;
 }) => {
   const [question, setQuestion] = useState("");
   const { data: selectedModel } = trpc.model.getSelection.useQuery({ chatId });
-  const modelId = selectedModel?.selected?.id;
+  const modelId = overrideModelId ?? selectedModel?.selected?.id;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,27 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import {
-  Box,
-  Button,
-  Modal,
-  Card,
-  CardContent,
-  Typography,
-  Grid,
-  Chip,
-  CircularProgress,
-  Stack,
-  Switch,
-  FormControlLabel,
-  Tooltip,
-  IconButton,
-  Divider,
-} from "@mui/material";
-import { trpc } from "@/services/trpc";
+import { Box, Button, Modal, Card, CardContent, Typography, Grid, Chip, CircularProgress, Switch, FormControlLabel, Tooltip, IconButton, Divider } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import { trpc } from "@/services/trpc";
 import { useNotify } from "@/providers/NotificationProdiver/useNotify";
 
 interface ModelSelectorProps {
-  chatId: string;
+  chatId?: string;
+  onLocalSelectionChange?: (model: { id: string; name: string; provider: string } | null) => void;
 }
 
 interface ModelCatalog {
@@ -32,11 +17,7 @@ interface ModelCatalog {
   isEnabled: boolean;
 }
 
-interface ModelInfo {
-  id: string;
-  name: string;
-  provider: string;
-}
+// Removed ModelInfo as we no longer keep temporary state
 
 interface ProviderGroup {
   provider: string;
@@ -44,9 +25,16 @@ interface ProviderGroup {
   models: ModelCatalog[];
 }
 
-const ModelSelector = ({ chatId }: ModelSelectorProps) => {
+interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+const ModelSelector = ({ chatId, onLocalSelectionChange }: ModelSelectorProps) => {
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [tempSelection, setTempSelection] = useState<ModelInfo | null>(null);
+  const [applyToAll, setApplyToAll] = useState<boolean>(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const { error: notifyError } = useNotify();
 
@@ -70,9 +58,7 @@ const ModelSelector = ({ chatId }: ModelSelectorProps) => {
   const updateDefault = trpc.model.updateDefault.useMutation({
     onSuccess: async () => {
       await utils.model.getSelection.invalidate();
-
       setModelModalOpen(false);
-      setTempSelection(null);
     },
     onError: (err) => notifyError(err.message),
   });
@@ -81,18 +67,13 @@ const ModelSelector = ({ chatId }: ModelSelectorProps) => {
     onSuccess: async () => {
       await utils.model.getSelection.invalidate();
       setModelModalOpen(false);
-      setTempSelection(null);
     },
     onError: (err) => notifyError(err.message),
   });
 
   /* ------------------------------- Helpers -------------------------------- */
   const handleModelSelect = (model: ModelCatalog) => {
-    setTempSelection({
-      id: model.id,
-      name: model.name,
-      provider: model.provider,
-    });
+    setTempSelection({ id: model.id, name: model.name, provider: model.provider });
   };
 
   // Focus trap effect
@@ -111,27 +92,6 @@ const ModelSelector = ({ chatId }: ModelSelectorProps) => {
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   };
 
-  /* ------------------------------- Actions -------------------------------- */
-  const saveForChat = () => {
-    updateChatModel.mutate({ chatId, modelId: tempSelection?.id || "" });
-  };
-
-  const saveAsDefault = () => {
-    updateDefault.mutate({ modelId: tempSelection?.id || "" });
-  };
-
-  // unified save depending on switch
-  const [applyToAll, setApplyToAll] = useState(false);
-
-  const handleSave = () => {
-    if (applyToAll) {
-      // save as default
-      saveAsDefault();
-    } else {
-      saveForChat();
-    }
-  };
-
   const isMutating = updateChatModel.isPending || updateDefault.isPending;
 
   /* -------------------------------- Render -------------------------------- */
@@ -140,7 +100,7 @@ const ModelSelector = ({ chatId }: ModelSelectorProps) => {
       <Button
         variant="text"
         onClick={() => {
-          setTempSelection(selectedModel);
+          setTempSelection(selectionData?.selected || null);
           setModelModalOpen(true);
         }}
         sx={{
@@ -302,63 +262,65 @@ const ModelSelector = ({ chatId }: ModelSelectorProps) => {
                 borderColor: "divider",
                 bgcolor: "background.paper",
                 display: "flex",
-                justifyContent: "flex-end",
+                justifyContent: "space-between",
+                alignItems: "center",
               }}
             >
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={2}
-                sx={{ alignItems: "center" }}
-              >
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={applyToAll}
-                      onChange={(e) => setApplyToAll(e.target.checked)}
-                      color="primary"
-                      disabled={isMutating}
-                    />
-                  }
-                  label={
-                    <Box sx={{ display: "flex", alignItems: "center" }}>
-                      Set as default
-                      <Tooltip
-                        placement="top"
-                        componentsProps={{
-                          tooltip: { sx: { maxWidth: 300, p: 2 } },
-                        }}
-                        title={
-                          <Box>
-                            <Typography variant="subtitle1" fontWeight={600}>
-                              Current default:{" "}
-                              {selectionData?.default?.name || "none"}
-                            </Typography>
-                            <Divider sx={{ my: 1 }} />
-                            <Typography variant="body2">
-                              Sets this as your default model for new chats and
-                              any existing chats without a custom model.
-                            </Typography>
-                          </Box>
-                        }
-                      >
-                        <IconButton size="small" sx={{ ml: 0.5 }}>
-                          <InfoOutlinedIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  }
-                  labelPlacement="end"
-                />
-
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={applyToAll}
+                    onChange={(e) => setApplyToAll(e.target.checked)}
+                    color="primary"
+                    disabled={isMutating}
+                  />
+                }
+                label={
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    Set as default
+                    <Tooltip
+                      placement="top"
+                      componentsProps={{ tooltip: { sx: { maxWidth: 300, p: 2 } } }}
+                      title={
+                        <Box>
+                          <Typography variant="subtitle1" fontWeight={600}>
+                            Current default: {selectionData?.default?.name || "none"}
+                          </Typography>
+                          <Divider sx={{ my: 1 }} />
+                          <Typography variant="body2">
+                            Sets this as your default model for new chats and any existing chats without a custom model.
+                          </Typography>
+                        </Box>
+                      }
+                    >
+                      <IconButton size="small" sx={{ ml: 0.5 }}>
+                        <InfoOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                }
+                labelPlacement="end"
+              />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                 <Button
                   variant="contained"
-                  onClick={handleSave}
-                  disabled={isMutating}
-                  endIcon={isMutating ? <CircularProgress size={16} /> : null}
+                  disabled={!tempSelection || isMutating}
+                  onClick={() => {
+                    if (!tempSelection) return;
+                    if (applyToAll) {
+                      updateDefault.mutate({ modelId: tempSelection.id });
+                    } else if (chatId) {
+                      updateChatModel.mutate({ chatId, modelId: tempSelection.id });
+                    } else {
+                      onLocalSelectionChange?.(tempSelection);
+                      setModelModalOpen(false);
+                    }
+                  }}
                 >
                   Save
                 </Button>
-              </Stack>
+                {isMutating && <CircularProgress size={18} />}
+              </Box>
             </Box>
           )}
         </Box>

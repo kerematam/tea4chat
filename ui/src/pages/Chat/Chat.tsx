@@ -9,7 +9,7 @@ import { ChatTextForm } from "../../components/ChatTextForm/ChatTextForm";
 import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
 
-import { MessageType, useChatMessages } from "../../hooks/useChatMessages/useChatMessages";
+import { useChatMessages } from "../../hooks/useChatMessages/useChatMessages";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import Landing from "./components/Landing/Landing";
 
@@ -99,6 +99,7 @@ const Chat = () => {
   }
 
   // Show new chat interface when no chatId
+  const [newChatModelId, setNewChatModelId] = useState<string | undefined>(undefined);
   if (!chatId) {
     return (
       <Box
@@ -153,8 +154,10 @@ const Chat = () => {
             sendMessage={sendMessage}
             isSending={isStreamingActive}
             abortStream={abortStream}
+            overrideModelId={newChatModelId}
           />
-          {/* ModelSelector only shown after chat is created */}
+          {/* ModelSelector available for new chat; local selection passed to first message */}
+          <ModelSelector onLocalSelectionChange={(m) => setNewChatModelId(m?.id)} />
         </Box>
       </Box>
     );
@@ -173,7 +176,7 @@ const Chat = () => {
     return <div>Loading...</div>;
   }
 
-  const renderMessages = (messagesToRender: MessageType[]) => {
+  const renderMessages = (messagesToRender: any[]) => {
     return messagesToRender.map((message) => (
       <Box key={message.id}>
         <Box
