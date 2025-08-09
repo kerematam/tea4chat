@@ -1,10 +1,11 @@
-import { useCallback, useMemo } from "react";
 import { useNotify } from "@/providers/NotificationProdiver/useNotify";
 import { trpc } from "@/services/trpc";
 import { isUserAbortError } from "@/utils";
-import { StreamChunk } from "./useChatMessages";
-import { useStreamingStore } from "./streamingStore";
+import { createId } from "@paralleldrive/cuid2";
+import { useCallback, useMemo } from "react";
 import type { MessageType } from "../types";
+import { useStreamingStore } from "./streamingStore";
+import { StreamChunk } from "./useChatMessages";
 
 interface UseChatStreamingProps {
   chatId?: string;
@@ -13,7 +14,6 @@ interface UseChatStreamingProps {
   utils: ReturnType<typeof trpc.useUtils>; // TRPC utils for invalidating chat list
   onStreamEnd?: (chatId: string) => void;
 }
-
 
 // TODO
 // 1. set uuid from client side so that we can use it to identify the stream,
@@ -31,7 +31,7 @@ interface UseChatStreamingProps {
 //   return mutation?.state.status;
 // };
 
-let emptyArray: MessageType[] = [];
+const emptyArray: MessageType[] = [];
 
 // TODO: once we have uuid, we can use it to identify the stream, and track the
 // mutations instead of using store state.
@@ -45,18 +45,19 @@ const useIsStreamingActive = (chatId?: string) => {
   const lastMessage = streamingMessages?.at(-1);
   if (!lastMessage) return false;
 
-  return ['STARTED', 'STREAMING'].includes(lastMessage.status);
+  // TODO: use prisma types directly from ui
+  return ["STARTED", "STREAMING"].includes(lastMessage.status);
 };
 
 /**
  * useChatStreaming - Manages the core TRPC operations for chat streaming
- * 
+ *
  * This hook encapsulates:
  * 1. sendWithStream - Primary streaming mutation for new messages
  * 2. listenToMessageChunkStream - Fallback streaming for reconnection
  * 3. abortStream - Stream abortion functionality
  * 4. Stream chunk event emission (no state management)
- * 
+ *
  * State management is handled by useSyncMessages hook.
  */
 export const useChatStreaming = ({
@@ -77,22 +78,23 @@ export const useChatStreaming = ({
   const actions = useStreamingStore((state) => state.actions);
 
   // Streaming update handler - only emits events
-  const handleStreamingUpdate = useCallback((chunk: StreamChunk) => {
-    // Handle chat creation
-    if (chunk.type === "userMessage" && !chatId && chunk.chatId) {
-      utils.chat.getAll.invalidate();
-      onChatCreated?.({ chatId: chunk.chatId });
-    }
+  const handleStreamingUpdate = useCallback(
+    (chunk: StreamChunk) => {
+      // Handle chat creation
+      if (chunk.type === "userMessage" && !chatId && chunk.chatId) {
+        utils.chat.getAll.invalidate();
+        onChatCreated?.({ chatId: chunk.chatId });
+      }
 
-    // Emit chunk event to parent
-    onStreamChunk?.(chunk);
-  }, [chatId, onChatCreated, utils.chat.getAll, onStreamChunk]);
-
+      // Emit chunk event to parent
+      onStreamChunk?.(chunk);
+    },
+    [chatId, onChatCreated, utils.chat.getAll, onStreamChunk]
+  );
 
   // Primary streaming mutation
   const sendMessageMutation = trpc.message.sendWithStream.useMutation({
     onSuccess: async (streamGenerator) => {
-
       // Process the stream
       try {
         for await (const chunk of streamGenerator) {
@@ -118,30 +120,30 @@ export const useChatStreaming = ({
   });
 
   // Redis stream listening mutation for reconnection scenarios
-  const listenToStreamMutation = trpc.message.listenToMessageChunkStream.useMutation({
-    onSuccess: async (streamGenerator) => {
-
-      // Process the Redis stream
-      try {
-        for await (const chunk of streamGenerator) {
-          console.log("listenToStreamMutation success", chunk?.chatId);
-          handleStreamingUpdate(chunk as StreamChunk);
+  const listenToStreamMutation =
+    trpc.message.listenToMessageChunkStream.useMutation({
+      onSuccess: async (streamGenerator) => {
+        // Process the Redis stream
+        try {
+          for await (const chunk of streamGenerator) {
+            console.log("listenToStreamMutation success", chunk?.chatId);
+            handleStreamingUpdate(chunk as StreamChunk);
+          }
+        } catch (err) {
+          console.error("Redis stream listening error:", err);
+          // Don't show error if user aborted the stream
+          if (!isUserAbortError(err)) {
+            error(`Failed to listen to stream: ${(err as Error).message}`);
+          }
+        } finally {
+          onStreamEnd?.(chatId!);
         }
-      } catch (err) {
-        console.error("Redis stream listening error:", err);
-        // Don't show error if user aborted the stream
-        if (!isUserAbortError(err)) {
-          error(`Failed to listen to stream: ${(err as Error).message}`);
-        }
-      } finally {
-        onStreamEnd?.(chatId!);
-      }
-    },
-    onError: (err) => {
-      console.error("Failed to listen to Redis stream:", err);
-      error(`Failed to listen to stream: ${err.message}`);
-    },
-  });
+      },
+      onError: (err) => {
+        console.error("Failed to listen to Redis stream:", err);
+        error(`Failed to listen to stream: ${err.message}`);
+      },
+    });
 
   // Abort stream mutation
   const abortStreamMutation = trpc.message.abortStream.useMutation({
@@ -153,34 +155,55 @@ export const useChatStreaming = ({
 
   // INFO: most probably using only isStreamingStoreStateActive is enough. But just in case using mutation states too.
   // TODO: once we have uuid, we can use it to identify the mutation.
-  const isActive = useMemo(() => sendMessageMutation.isPending || listenToStreamMutation.isPending || isStreamingStoreStateActive
-    , [sendMessageMutation.isPending, listenToStreamMutation.isPending, isStreamingStoreStateActive]);
+  const isActive = useMemo(
+    () =>
+      sendMessageMutation.isPending ||
+      listenToStreamMutation.isPending ||
+      isStreamingStoreStateActive,
+    [
+      sendMessageMutation.isPending,
+      listenToStreamMutation.isPending,
+      isStreamingStoreStateActive,
+    ]
+  );
 
   // Send message function
-  const sendMessage = useCallback((content: string, modelId?: string) => {
-    if (!content.trim() || isActive) return;
+  const sendMessage = useCallback(
+    (content: string, modelId?: string) => {
+      if (!content.trim() || isActive) return;
 
-    sendMessageMutation.mutate({
-      content: content.trim(),
-      chatId,
-      modelId,
-    });
-  }, [chatId, isActive]);
+      const isNewChat = !chatId;
+      const clientChatId = chatId ?? createId();
+
+      sendMessageMutation.mutate({
+        content: content.trim(),
+        chatId: clientChatId,
+        modelId,
+        isNewChat,
+      });
+    },
+    [chatId, isActive, sendMessageMutation]
+  );
 
   // Abort stream function
   const abortStream = useCallback(() => {
     if (!chatId) return;
 
-    abortStreamMutation.mutate({ chatId, });
+    abortStreamMutation.mutate({ chatId });
   }, [chatId, abortStreamMutation]);
 
-
   // Manual sync function to trigger Redis stream listening
-  const listenToStream = useCallback((fromTimestamp?: string) => {
-    if (!chatId || isActive) return;
+  const listenToStream = useCallback(
+    (fromTimestamp?: string) => {
+      if (!chatId || isActive) return;
 
-    listenToStreamMutation.mutate({ chatId, ...(fromTimestamp && { fromTimestamp }) });
-  }, [chatId, isActive]);
+      listenToStreamMutation.mutate({
+        chatId,
+        ...(fromTimestamp && { fromTimestamp }),
+      });
+    },
+    [chatId, isActive, listenToStreamMutation]
+  );
 
   return {
     // Mutation objects
@@ -199,4 +222,4 @@ export const useChatStreaming = ({
     isSending: sendMessageMutation.isPending,
     isAborting: abortStreamMutation.isPending,
   };
-}; 
+};
