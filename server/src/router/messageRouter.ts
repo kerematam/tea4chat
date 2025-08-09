@@ -188,11 +188,6 @@ export const messageRouter = router({
     .input(
       z.object({
         chatId: z.string().optional(),
-        /**
-         * When true, server will create a new chat using provided chatId.
-         * Allows client-side UUIDs for chats so the UI can immediately route/track by id.
-         */
-        isNewChat: z.boolean().optional().default(false),
         content: z.string().min(1, "Message content is required"),
         modelId: z.string().optional(),
       })
@@ -205,33 +200,8 @@ export const messageRouter = router({
       let chat;
       let chatId = input.chatId;
 
-      if (input.isNewChat) {
-        // Creating a new chat with client-provided id
-        if (!chatId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "chatId is required when isNewChat is true",
-          });
-        }
-
-        chat = await prisma.chat.create({
-          data: {
-            id: chatId, // accept client-side UUID
-            title: input.content,
-            description: "",
-            ownerId: ctx.owner.id,
-            ...(input.modelId ? { modelId: input.modelId } : {}),
-          },
-          include: {
-            messages: {
-              orderBy: { createdAt: "asc" },
-              take: 20,
-            },
-            model: true,
-          },
-        });
-      } else if (!chatId) {
-        // Create a new chat if no chatId provided (server-generated id)
+      if (!chatId) {
+        // Create a new chat if no chatId provided
         chat = await prisma.chat.create({
           data: {
             title: input.content,
