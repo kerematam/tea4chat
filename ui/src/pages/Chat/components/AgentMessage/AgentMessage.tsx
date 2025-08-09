@@ -1,11 +1,7 @@
+import { MessageType } from "@/hooks/types";
 import { Box } from "@mui/material";
-// import { ChatMessage } from "../../Chat";
-// import { SqlView } from "../SqlView/SqlView";
-// import { TableView } from "../TableView/TableView";
-// import { ApiView } from "../ApiView/ApiView";
-import { MarkdownHighlighter } from "../../../../components/MarkdownHighlighter/MarkdownHighlighter";
 import { useMemo } from "react";
-import { MessageType } from "../../Chat";
+import { MarkdownHighlighter } from "../../../../components/MarkdownHighlighter/MarkdownHighlighter";
 
 interface AgentMessageProps {
   message: MessageType;

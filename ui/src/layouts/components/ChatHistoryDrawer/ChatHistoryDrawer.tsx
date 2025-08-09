@@ -1,37 +1,37 @@
+import { useNotify } from "@/providers/NotificationProdiver/useNotify";
+import UserInfoSection from "@/services/auth/UserInfoSection";
+import { trpc } from "@/services/trpc";
+import AddIcon from "@mui/icons-material/Add";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import DeleteOutlineOutlinedIcon from "@mui/icons-material/DeleteOutlineOutlined";
+import EditIcon from "@mui/icons-material/Edit";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import {
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Divider,
   Drawer,
+  IconButton,
   List,
+  ListItem,
   ListItemButton,
   ListItemText,
   Skeleton,
-  Box,
-  Typography,
-  ListItem,
-  IconButton,
-  Divider,
-  CircularProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Button,
   TextField,
   Tooltip,
+  Typography,
 } from "@mui/material";
-import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
-import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import DeleteOutlineOutlinedIcon from "@mui/icons-material/DeleteOutlineOutlined";
-import EditIcon from "@mui/icons-material/Edit";
-import AddIcon from "@mui/icons-material/Add";
-import { useState, useEffect } from "react";
-import UserInfoSection from "@/services/auth/UserInfoSection";
-import { trpc } from "@/services/trpc";
+import { useEffect, useState } from "react";
 import { useInView } from "react-intersection-observer";
-import { useNotify } from "@/providers/NotificationProdiver/useNotify";
+import { useNavigate } from "react-router-dom";
 
 dayjs.extend(relativeTime);
 
@@ -363,23 +363,15 @@ const ChatHistoryDrawer = ({
             fullWidth
             startIcon={<AddIcon />}
             onClick={() => {
-              navigate('/chat');
+              navigate("/chat");
               onClose(); // Close drawer after navigation
             }}
-            sx={{
-              mb: 1,
-              borderColor: 'divider',
-              color: 'text.primary',
-              '&:hover': {
-                borderColor: 'primary.main',
-                backgroundColor: 'action.hover',
-              }
-            }}
+            sx={{ mb: 1 }}
           >
             New Chat
           </Button>
         </Box>
-        
+
         <Box sx={{ px: 2, width: "100%" }}>
           <Divider />
         </Box>

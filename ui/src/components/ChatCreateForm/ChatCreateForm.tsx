@@ -1,5 +1,5 @@
-import { Box, Divider, IconButton, CircularProgress } from "@mui/material";
 import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
+import { Box, CircularProgress, Divider, IconButton } from "@mui/material";
 import { ChatTextField } from "../ChatTextField/ChatTextField";
 
 const ChatCreateForm = ({
