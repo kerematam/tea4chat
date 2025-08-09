@@ -53,7 +53,6 @@ export type MessageType = {
   content: string;
   from: string;
   status: MessageStatus;
-  text: string;
 };
 
 const prisma = new PrismaClient();
@@ -293,7 +292,6 @@ export const messageRouter = router({
           data: {
             content: input.content,
             from: "user",
-            text: input.content,
             chatId: chatId,
           },
         });
@@ -324,7 +322,6 @@ export const messageRouter = router({
             status: MessageStatus.STARTED,
             content: "",
             from: "assistant",
-            text: "",
             chatId: chatId,
           },
         });
@@ -450,7 +447,6 @@ export const messageRouter = router({
               where: { id: aiMessage.id },
               data: {
                 content: fullContent,
-                text: fullContent,
                 status: MessageStatus.COMPLETED,
               },
             });

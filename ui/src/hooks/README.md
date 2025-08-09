@@ -13,30 +13,34 @@ The `useChatMessages` hook provides a unified interface for managing chat messag
 ## Key Features
 
 ### 1. **Unified API**
+
 ```typescript
 const {
-  messages,           // Flattened array of all messages
-  isLoading,          // Initial loading state
-  sendMessage,        // Send new message with streaming
-  isSending,          // Message sending state
-  fetchNextPage,      // Load older messages
-  hasNextPage,        // More older messages available
+  messages, // Flattened array of all messages
+  isLoading, // Initial loading state
+  sendMessage, // Send new message with streaming
+  isSending, // Message sending state
+  fetchNextPage, // Load older messages
+  hasNextPage, // More older messages available
   // ... other pagination states
 } = useChatMessages({
   chatId: "chat-123",
   limit: 4,
-  onStreamingUpdate: customHandler // Optional custom streaming handler
+  onStreamingUpdate: customHandler, // Optional custom streaming handler
 });
 ```
 
 ### 2. **Automatic Cache Management**
+
 The hook handles the complex infinite query cache updates, ensuring:
+
 - New messages appear in correct order (reverse chronological)
 - No duplicates in the cache
 - Proper page structure maintenance
 - Optimistic updates during streaming
 
 ### 3. **Smart Auto-Loading**
+
 - **Window Focus**: Automatically loads new messages when user returns to tab
 - **Continuous Loading**: Keeps loading until all available messages are fetched
 - **Initial Load Protection**: Prevents unnecessary requests on first load
@@ -76,7 +80,6 @@ const handleStreamingUpdate = (chunk: StreamChunk) => {
   } else if (chunk.type === "aiMessageChunk") {
     updateMessageInCache(chunk.messageId, {
       content: chunk.fullContent,
-      text: chunk.fullContent,
     });
   } else if (chunk.type === "aiMessageComplete") {
     updateMessageInCache(chunk.message.id, chunk.message);
@@ -87,10 +90,11 @@ const handleStreamingUpdate = (chunk: StreamChunk) => {
 ## Usage Examples
 
 ### Basic Usage
+
 ```typescript
 const ChatComponent = () => {
   const { messages, sendMessage, isLoading } = useChatMessages({
-    chatId: "chat-123"
+    chatId: "chat-123",
   });
 
   const handleSend = (content: string) => {
@@ -99,7 +103,7 @@ const ChatComponent = () => {
 
   return (
     <div>
-      {messages.map(message => (
+      {messages.map((message) => (
         <MessageComponent key={message.id} message={message} />
       ))}
       <ChatInput onSend={handleSend} disabled={isLoading} />
@@ -109,18 +113,19 @@ const ChatComponent = () => {
 ```
 
 ### With Custom Streaming Handler
+
 ```typescript
 const ChatWithCustomHandling = () => {
   const customStreamingHandler = (chunk: StreamChunk) => {
     // Custom logic for handling streaming updates
-    console.log('Stream chunk:', chunk);
+    console.log("Stream chunk:", chunk);
     // Still call default handler
     handleStreamingUpdate(chunk);
   };
 
   const { messages, sendMessage, handleStreamingUpdate } = useChatMessages({
     chatId: "chat-123",
-    onStreamingUpdate: customStreamingHandler
+    onStreamingUpdate: customStreamingHandler,
   });
 
   // ... rest of component
@@ -130,6 +135,7 @@ const ChatWithCustomHandling = () => {
 ## Comparison with Original Implementation
 
 ### Original Chat Component (486 lines)
+
 - Manual tRPC query setup with complex pagination logic
 - Custom cache update functions (`addNewMessages`, `updateMessageInCache`)
 - Manual streaming mutation handling
@@ -137,6 +143,7 @@ const ChatWithCustomHandling = () => {
 - Complex state management for loading states
 
 ### With useChatMessages Hook (ChatWithHook.tsx - ~200 lines)
+
 - Single hook call provides all functionality
 - Simplified component logic focused on UI
 - Built-in cache management
@@ -160,8 +167,9 @@ const ChatWithCustomHandling = () => {
 ## Future Enhancements
 
 The hook architecture makes it easy to add features like:
+
 - Message search within the hook
 - Real-time typing indicators
 - Message reactions/editing
 - Offline message queuing
-- Custom pagination strategies 
+- Custom pagination strategies

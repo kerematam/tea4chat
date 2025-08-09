@@ -309,7 +309,6 @@ export const chatRouter = router({
             id: message.id,
             content: message.content,
             from: message.from,
-            text: message.text,
             model: message.model,
             createdAt: message.createdAt.toISOString(),
           })),
@@ -408,7 +407,6 @@ export const chatRouter = router({
               return {
                 content: messageData.content || "",
                 from: messageData.from || "user",
-                text: messageData.text || null,
                 chatId: createdChat.id,
                 createdAt: messageCreatedAt,
                 // Note: We're not importing modelId to avoid reference issues
@@ -556,7 +554,6 @@ export const chatRouter = router({
             id: message.id,
             content: message.content,
             from: message.from,
-            text: message.text,
             model: message.model,
             createdAt: message.createdAt.toISOString(),
           })),

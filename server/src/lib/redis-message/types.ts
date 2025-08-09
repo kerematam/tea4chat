@@ -9,7 +9,6 @@ export interface MessageType {
   chatId: string;
   content: string;
   from: string;
-  text: string;
 }
 
 // StreamMessage type similar to messageRouter.ts

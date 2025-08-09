@@ -191,7 +191,6 @@ describe("Message Router", () => {
       });
 
       expect(updatedMessage.content).toBe("Updated message content");
-      expect(updatedMessage.text).toBe("Updated message content");
       expect(updatedMessage.id).toBe(sendResult.userMessage.id);
     });
 

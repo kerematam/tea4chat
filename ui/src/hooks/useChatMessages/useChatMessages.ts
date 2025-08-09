@@ -44,7 +44,6 @@ export type MessageType = {
   chatId: string;
   content: string;
   from: string;
-  text: string;
 };
 
 export type StreamChunk =

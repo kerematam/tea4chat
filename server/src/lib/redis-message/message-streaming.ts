@@ -37,7 +37,6 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
       chatId,
       content: userContent,
       from: 'user',
-      text: userContent,
     };
     await enqueue({ type: 'userMessage', message: userMessage, chatId });
 
@@ -48,7 +47,6 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
       chatId,
       content: '',
       from: 'assistant',
-      text: '',
     };
     await enqueue({ type: 'aiMessageStart', message: aiMessage, chatId });
 
@@ -82,7 +80,7 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     }
 
     // Always signal completion so subscribers can finish cleanly
-    const completedMessage: MessageType = { ...aiMessage, content: accumulated, text: accumulated };
+    const completedMessage: MessageType = { ...aiMessage, content: accumulated };
     await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
 
     // Clean up the queue
