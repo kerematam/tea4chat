@@ -1,10 +1,10 @@
-import { useStreamingStore } from "./streamingStore";
-import { useCallback, useMemo } from "react";
+import useValueChange from "@/hooks/useValueChange";
 import { trpc } from "@/services/trpc";
+import { useCallback, useMemo } from "react";
+import { useStreamingStore } from "./streamingStore";
 import { useChatStreaming } from "./useChatStreaming";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
 import useSyncMessages from "./useSyncMessages";
-import useValueChange from "@/hooks/useValueChange";
 
 /**
  * useChatMessages - A comprehensive hook for managing chat messages with real-time streaming
@@ -51,11 +51,11 @@ export type StreamChunk =
   | { type: "userMessage"; message: MessageType; chatId: string }
   | { type: "aiMessageStart"; message: MessageType; chatId: string }
   | {
-    type: "aiMessageChunk";
-    messageId: string;
-    chunk: string;
-    chatId: string;
-  }
+      type: "aiMessageChunk";
+      messageId: string;
+      chunk: string;
+      chatId: string;
+    }
   | { type: "aiMessageComplete"; message: MessageType; chatId: string };
 
 interface UseChatMessagesProps {
@@ -137,7 +137,6 @@ export const useChatMessages = ({
     streaming.listenToStream(fromTimestamp);
   }, [chatId, streaming, messagesQuery.data?.pages]);
 
-
   // this clears the streaming messages when new messages comes from infinite query
   const { actions } = useStreamingStore();
   useValueChange(
@@ -145,13 +144,11 @@ export const useChatMessages = ({
     (streamingMessageId) => {
       if (streamingMessageId) {
         manualSync();
-      }
-      else if (chatId) {
+      } else if (chatId) {
         actions.clearStreamingMessages(chatId);
       }
     }
   );
-
 
   // Check if there are more newer messages to load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {

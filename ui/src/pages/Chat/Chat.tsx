@@ -4,25 +4,15 @@ import { Box, Container, Fab, Paper, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useLocation } from "react-router-dom";
 import { ChatTextForm } from "../../components/ChatTextForm/ChatTextForm";
 import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
 
 import { useChatMessages } from "../../hooks/useChatMessages/useChatMessages";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
-import Landing from "./components/Landing/Landing";
-
-const withChatId = (Component: React.ComponentType<{ chatId: string }>) => {
-  return (props: { chatId: string }) => {
-    const { id: chatId } = useParams<{ id: string }>();
-    return <Component key={chatId} {...props} />;
-  };
-};
 
 
 const Chat = () => {
-  const location = useLocation();
   const { id: chatId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,11 +36,10 @@ const Chat = () => {
     isFetchingNextPage,
     isFetchingPreviousPage,
     sendMessage,
-    isSending,
     abortStream,
     isStreamingActive,
     isListeningToStream,
-    manualSync
+    manualSync,
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
@@ -94,12 +83,14 @@ const Chat = () => {
     return () => container?.removeEventListener("scroll", handleScroll);
   }, []);
 
-  if (location.pathname === "/") {
-    return <Landing onSendMessage={sendMessage} isSending={isSending} />;
-  }
+  const [newChatModelId, setNewChatModelId] = useState<string | undefined>(
+    undefined
+  );
 
-  // Show new chat interface when no chatId
-  const [newChatModelId, setNewChatModelId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    console.log("mounting");
+  }, []);
+
   if (!chatId) {
     return (
       <Box
@@ -129,7 +120,7 @@ const Chat = () => {
             }}
           >
             <Typography variant="h5" component="h1" gutterBottom>
-              Start a New Chat
+              Start a New Chat 123
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
               Type your first message below to begin a new conversation.
@@ -157,7 +148,9 @@ const Chat = () => {
             overrideModelId={newChatModelId}
           />
           {/* ModelSelector available for new chat; local selection passed to first message */}
-          <ModelSelector onLocalSelectionChange={(m) => setNewChatModelId(m?.id)} />
+          <ModelSelector
+            onLocalSelectionChange={(m) => setNewChatModelId(m?.id)}
+          />
         </Box>
       </Box>
     );
@@ -379,4 +372,4 @@ const Chat = () => {
   );
 };
 
-export default withChatId(Chat);
+export default Chat;

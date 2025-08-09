@@ -2,11 +2,10 @@ import { useNotify } from "@/providers/NotificationProdiver/useNotify";
 import { trpc } from "@/services/trpc";
 import { isUserAbortError } from "@/utils";
 import { createId } from "@paralleldrive/cuid2";
-import { useCallback, useMemo } from "react";
-import type { MessageType } from "../types";
+import { useCallback } from "react";
+import { MessageType } from "../types";
 import { useStreamingStore } from "./streamingStore";
 import { StreamChunk } from "./useChatMessages";
-
 interface UseChatStreamingProps {
   chatId?: string;
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
@@ -15,26 +14,24 @@ interface UseChatStreamingProps {
   onStreamEnd?: (chatId: string) => void;
 }
 
-// TODO
-// 1. set uuid from client side so that we can use it to identify the stream,
-//    and track the mutations. Currently since we do not know the stream id on
-//    chat creation, we are not able to track the mutations.
-// 2. we unnessarily evaluate both agent message and user message on database at
-//    same level. It should be merged into one. It will simplify the code.
+// TODO: we unnessarily evaluate both agent message and user message on database at
+// same level. It should be merged into one. It will simplify the code.
 
-// const useSendMessageMutationStatus = (chatId?: string) => {
+// const useHasActiveMutation = (chatId?: string) => {
 //   const mutationCache = queryClient.getMutationCache();
-//   if (!chatId) return "idle";
-//   const mutation = mutationCache.find({
-//     mutationKey: ['message', 'sendWithStream', chatId],
+//   if (!chatId) return false;
+//   const mutations = mutationCache.findAll({
+//     predicate: (m) => {
+//       const variables = m.state.variables as { chatId?: string };
+//       console.log("variables", m, chatId);
+//       return variables?.chatId === chatId;
+//     },
 //   });
-//   return mutation?.state.status;
+//   return mutations.some((m) => m.state.status === "pending");
 // };
 
 const emptyArray: MessageType[] = [];
 
-// TODO: once we have uuid, we can use it to identify the stream, and track the
-// mutations instead of using store state.
 const useIsStreamingActive = (chatId?: string) => {
   const streamingMessages = useStreamingStore((state) => {
     if (!chatId) return emptyArray;
@@ -45,7 +42,6 @@ const useIsStreamingActive = (chatId?: string) => {
   const lastMessage = streamingMessages?.at(-1);
   if (!lastMessage) return false;
 
-  // TODO: use prisma types directly from ui
   return ["STARTED", "STREAMING"].includes(lastMessage.status);
 };
 
@@ -74,7 +70,6 @@ export const useChatStreaming = ({
   // const mutation = mutationCache.find({ mutationKey: ['message', 'sendWithStream', chatId] });
   // const isSendMessageMutationPending = mutation?.state.status === "pending";
 
-  const isStreamingStoreStateActive = useIsStreamingActive(chatId);
   const actions = useStreamingStore((state) => state.actions);
 
   // Streaming update handler - only emits events
@@ -153,24 +148,13 @@ export const useChatStreaming = ({
     },
   });
 
-  // INFO: most probably using only isStreamingStoreStateActive is enough. But just in case using mutation states too.
-  // TODO: once we have uuid, we can use it to identify the mutation.
-  const isActive = useMemo(
-    () =>
-      sendMessageMutation.isPending ||
-      listenToStreamMutation.isPending ||
-      isStreamingStoreStateActive,
-    [
-      sendMessageMutation.isPending,
-      listenToStreamMutation.isPending,
-      isStreamingStoreStateActive,
-    ]
-  );
+  const isStreamingActive = useIsStreamingActive(chatId);
+  console.log("isStreamingActive", isStreamingActive);
 
   // Send message function
   const sendMessage = useCallback(
     (content: string, modelId?: string) => {
-      if (!content.trim() || isActive) return;
+      if (!content.trim() || isStreamingActive) return;
 
       const isNewChat = !chatId;
       const clientChatId = chatId ?? createId();
@@ -182,7 +166,7 @@ export const useChatStreaming = ({
         isNewChat,
       });
     },
-    [chatId, isActive, sendMessageMutation]
+    [chatId, isStreamingActive, sendMessageMutation]
   );
 
   // Abort stream function
@@ -195,14 +179,14 @@ export const useChatStreaming = ({
   // Manual sync function to trigger Redis stream listening
   const listenToStream = useCallback(
     (fromTimestamp?: string) => {
-      if (!chatId || isActive) return;
+      if (!chatId || isStreamingActive) return;
 
       listenToStreamMutation.mutate({
         chatId,
         ...(fromTimestamp && { fromTimestamp }),
       });
     },
-    [chatId, isActive, listenToStreamMutation]
+    [chatId, isStreamingActive, listenToStreamMutation]
   );
 
   return {
@@ -217,7 +201,7 @@ export const useChatStreaming = ({
     listenToStream,
 
     // States
-    isActive,
+    isActive: isStreamingActive,
     isListeningToStream: listenToStreamMutation.isPending,
     isSending: sendMessageMutation.isPending,
     isAborting: abortStreamMutation.isPending,
