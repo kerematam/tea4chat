@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
+import { MessageType } from "../types";
 import { useStreamingStore } from "./streamingStore";
-import { MessageType, StreamChunk } from "./useChatMessages";
+import { StreamChunk } from "./useChatMessages";
 
 /**
  * useSyncMessages - Manages synchronized messages with streaming state
@@ -26,20 +27,12 @@ const useSyncMessages = (
     [pages]
   );
 
-  const messagesAfterLastUserMessage = useMemo(() => {
-    const index = prevMessages.findLastIndex((msg) => msg?.from === "user");
-    return index === -1 ? [] : prevMessages.slice(index);
-  }, [prevMessages]);
-
-
-  const streamingMessages = useMemo(() => {
-    const rawStreamingMessages = allStreamingMessages[chatId] || [];
-
-    // filter out messages that are already in prevMessages
-    return rawStreamingMessages.filter(
-      (msg) => !messagesAfterLastUserMessage.some((m) => m.id === msg.id)
-    );
-  }, [messagesAfterLastUserMessage, allStreamingMessages, chatId]);
+  const streamingMessage = useMemo(() => {
+    const streamingMessage = allStreamingMessages[chatId];
+    return streamingMessage && prevMessages.at(-1)?.id !== streamingMessage.id
+      ? streamingMessage
+      : null;
+  }, [prevMessages, allStreamingMessages, chatId]);
 
   // Stream chunk handler
   const handleStreamChunk = useCallback(
@@ -55,7 +48,7 @@ const useSyncMessages = (
 
   return {
     prevMessages,
-    streamingMessages,
+    streamingMessage,
     handleStreamChunk,
   };
 };

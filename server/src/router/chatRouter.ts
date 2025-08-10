@@ -307,8 +307,9 @@ export const chatRouter = router({
           messageCount: chat.messages.length,
           messages: chat.messages.map(message => ({
             id: message.id,
-            content: message.content,
-            from: message.from,
+            userContent: message.userContent,
+            agentContent: message.agentContent,
+            status: message.status,
             model: message.model,
             createdAt: message.createdAt.toISOString(),
           })),
@@ -552,8 +553,9 @@ export const chatRouter = router({
           messageCount: chat._count.messages,
           messages: chat.messages.map(message => ({
             id: message.id,
-            content: message.content,
-            from: message.from,
+            userContent: message.userContent,
+            agentContent: message.agentContent,
+            status: message.status,
             model: message.model,
             createdAt: message.createdAt.toISOString(),
           })),

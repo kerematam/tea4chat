@@ -37,43 +37,37 @@ import useSyncMessages from "./useSyncMessages";
  * that provides real-time streaming with reliable message persistence and pagination.
  */
 
-// MessageType for client-side (createdAt is serialized as string)
-export type MessageType = {
-  id: string;
-  createdAt: string;
-  chatId: string;
-  content: string;
-  from: string;
-};
+// Re-export MessageType from shared types to maintain consistency
+export type { MessageType } from "../types";
+
+import { MessageType } from "../types";
 
 export type StreamChunk =
-  | { type: "userMessage"; message: MessageType; chatId: string }
-  | { type: "aiMessageStart"; message: MessageType; chatId: string }
+  | { type: "messageStart"; message: MessageType; chatId: string }
   | {
-      type: "aiMessageChunk";
+      type: "agentChunk";
       messageId: string;
       chunk: string;
       chatId: string;
     }
-  | { type: "aiMessageComplete"; message: MessageType; chatId: string };
+  | { type: "messageComplete"; message: MessageType; chatId: string };
 
 interface UseChatMessagesProps {
   chatId?: string; // Made optional to support chat creation
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
   chunkHandlers?: {
-    userMessage?: (message: MessageType) => void;
-    aiMessageStart?: (message: MessageType) => void;
-    aiMessageChunk?: (
+    messageStart?: (message: MessageType) => void;
+    agentChunk?: (
       messageId: string,
-      fullContent: string,
+      fullAgentContent: string,
       chatId: string
     ) => void;
-    aiMessageComplete?: (message: MessageType) => void;
+    messageComplete?: (message: MessageType) => void;
   };
 }
 
 // TODO: streaming only works on 4
-const QUERY_LIMIT = 10;
+const QUERY_LIMIT = 2;
 
 export const useChatMessages = ({
   chatId,
@@ -82,6 +76,7 @@ export const useChatMessages = ({
   const utils = trpc.useUtils();
 
   // Infinite query for messages (only enabled when chatId exists)
+  // console.log("2 chatId", chatId);
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
     {
       chatId: chatId!, // Assert non-null since query is disabled when chatId is undefined
@@ -99,17 +94,18 @@ export const useChatMessages = ({
         if (!lastPage || lastPage.messages.length < QUERY_LIMIT) {
           return undefined;
         }
-        return lastPage.messages[0].createdAt;
+        return lastPage.messages[0].finishedAt;
       },
       // newer messages
       getPreviousPageParam: (firstPage) => {
-        return firstPage.messages.at(-1)?.createdAt || firstPage.syncDate;
+        return firstPage.messages.at(-1)?.finishedAt || firstPage.syncDate;
       },
     }
   );
+  console.log("messagesQuery.data", messagesQuery.data);
 
   // Sync messages hook
-  const { prevMessages, streamingMessages, handleStreamChunk } =
+  const { prevMessages, streamingMessage, handleStreamChunk } =
     useSyncMessages(messagesQuery.data?.pages || [], chatId || "");
 
   // Streaming hook
@@ -122,7 +118,14 @@ export const useChatMessages = ({
     // the react query cache on streamingStore on stream end with
     // commitStreamingMessagesToQueryCache
     //
-    onStreamEnd: () => messagesQuery.fetchPreviousPage(),
+    onStreamEnd: () => {
+      messagesQuery.fetchPreviousPage();
+      // if (messagesQuery.data?.pages?.[0]?.direction === "backward") {
+      //   messagesQuery.fetchPreviousPage();
+      // } else {
+      //   messagesQuery.fetchNextPage();
+      // }
+    },
   });
 
   // Manual sync function to trigger Redis stream listening
@@ -138,13 +141,16 @@ export const useChatMessages = ({
 
   // this clears the streaming messages when new messages comes from infinite query
   const { actions } = useStreamingStore();
+  console.log("2 chatId", chatId);
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
     (streamingMessageId) => {
       if (streamingMessageId) {
+        // there is a streaming message, so we need to sync
         manualSync();
       } else if (chatId) {
-        actions.clearStreamingMessages(chatId);
+        // no streaming message, so we need to clear the streaming message
+        actions.clearStreamingMessage(chatId);
       }
     }
   );
@@ -166,10 +172,23 @@ export const useChatMessages = ({
     skipInitialLoad: true, // Skip refresh on initial load
   });
 
+  // Debug logging to track message state changes
+  // useEffect(() => {
+  //   // console.error(`DEBUG: useChatMessages - prevMessages count: ${prevMessages.length}, streamingMessages count: ${streamingMessages.length}, chatId: ${chatId}`);
+  //   // console.error(`DEBUG: prevMessages IDs: ${prevMessages.map(m => m.id).join(', ')}`);
+  //   // console.error(`DEBUG: streamingMessages IDs: ${streamingMessages.map(m => m.id).join(', ')}`);
+  // }, [
+  //   prevMessages.length,
+  //   streamingMessages,
+  //   chatId,
+  //   prevMessages,
+  //   streamingMessages,
+  // ]);
+
   return {
     // Messages data
     messages: prevMessages, // Cached/previous messages
-    streamingMessages, // Current streaming messages
+    streamingMessage, // Current streaming messages
 
     // Query states
     isLoading: messagesQuery.isLoading,

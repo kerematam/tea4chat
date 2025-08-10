@@ -33,12 +33,8 @@ import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
 
 export type StreamMessage = {
-  type:
-  | "userMessage"
-  | "aiMessageStart"
-  | "aiMessageChunk"
-  | "aiMessageComplete";
-  message?: any;
+  type: "messageStart" | "agentChunk" | "messageComplete";
+  message?: MessageType;
   messageId?: string;
   chunk?: string;
   chatId: string;
@@ -50,9 +46,23 @@ export type MessageType = {
   id: string;
   createdAt: Date;
   chatId: string;
-  content: string;
-  from: string;
+
+  // Combined user + agent content
+  userContent: string;
+  agentContent: string | null;
+
+  // Metadata
   status: MessageStatus;
+  finishedAt: Date | null;
+
+  // Analytics (optional for backwards compatibility)
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  providerLatencyMs?: number | null;
+  firstByteMs?: number | null;
+  errorReason?: string | null;
+  metadata?: any;
 };
 
 const prisma = new PrismaClient();
@@ -89,8 +99,14 @@ const fetchOlderMessages = async (
   const messages = await prisma.message.findMany({
     where: {
       chatId,
-      createdAt: { lt: cursorDate },
-      status: MessageStatus.COMPLETED,
+      finishedAt: { lt: cursorDate },
+      status: {
+        in: [
+          MessageStatus.COMPLETED,
+          MessageStatus.ABORTED,
+          MessageStatus.FAILED,
+        ],
+      },
     },
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -107,8 +123,15 @@ const fetchNewerMessages = async (
   return await prisma.message.findMany({
     where: {
       chatId,
-      createdAt: { gt: cursorDate },
-      status: MessageStatus.COMPLETED,
+      finishedAt: { gt: cursorDate },
+      // completed, aborted, failed
+      status: {
+        in: [
+          MessageStatus.COMPLETED,
+          MessageStatus.ABORTED,
+          MessageStatus.FAILED,
+        ],
+      },
     },
     orderBy: { createdAt: "asc" },
     take: limit,
@@ -117,8 +140,8 @@ const fetchNewerMessages = async (
 
 /** check latest message status from given date */
 const fetchStreamingMessage = async (
-  chatId: string,
-  cursorDate: Date
+  chatId: string
+  // cursorDate: Date //TODO: support this
 ): Promise<Message | null> => {
   const latestMessage = await prisma.message.findFirst({
     where: { chatId },
@@ -134,24 +157,6 @@ const fetchStreamingMessage = async (
   }
 
   return null;
-};
-
-// Calculate sync date for React Query optimization
-// This prevents stale cache hits and enables efficient incremental loading
-const calculateSyncDate = (
-  direction: "backward" | "forward",
-  messages: Message[],
-  cursorDate: string
-): string => {
-  if (messages.length === 0) {
-    return cursorDate;
-  }
-
-  if (direction === "backward") {
-    return messages.at(-1)!.createdAt.toISOString();
-  }
-
-  return messages[0]!.createdAt.toISOString();
 };
 
 // Helper function to determine which model to use
@@ -287,43 +292,50 @@ export const messageRouter = router({
       }
 
       try {
-        // Save user message to database
-        const userMessage = await prisma.message.create({
+        // Create combined message with user content (agent content will be filled during streaming)
+        const combinedMessage = await prisma.message.create({
           data: {
-            content: input.content,
-            from: "user",
+            userContent: input.content,
+            agentContent: null, // Will be filled during streaming
             chatId: chatId,
+            status: MessageStatus.STARTED,
+            ...(input.modelId ? { modelId: input.modelId } : {}),
           },
         });
 
-        // yield the user message first, before database updates so that the
-        // client can see it immediately
+        // yield the message start event with user content
         yield {
-          type: "userMessage" as const,
-          message: userMessage as MessageType,
+          type: "messageStart" as const,
+          message: combinedMessage as MessageType,
           chatId: chatId,
         };
 
-        // Prepare conversation history
-        const conversationHistory = chat.messages.map((msg) => ({
-          role: msg.from as "user" | "assistant",
-          content: msg.content,
-        }));
+        // Prepare conversation history from combined messages
+        const conversationHistory: Array<{
+          role: "user" | "assistant";
+          content: string;
+        }> = [];
+
+        for (const msg of chat.messages) {
+          // Add user message
+          conversationHistory.push({
+            role: "user",
+            content: msg.userContent,
+          });
+
+          // Add agent response if it exists
+          if (msg.agentContent) {
+            conversationHistory.push({
+              role: "assistant",
+              content: msg.agentContent,
+            });
+          }
+        }
 
         // Add the new user message to conversation history
         conversationHistory.push({
           role: "user",
-          content: userMessage.content,
-        });
-
-        // Create a placeholder AI message in the database
-        const aiMessage = await prisma.message.create({
-          data: {
-            status: MessageStatus.STARTED,
-            content: "",
-            from: "assistant",
-            chatId: chatId,
-          },
+          content: combinedMessage.userContent,
         });
 
         // Register this stream for potential abortion
@@ -354,13 +366,14 @@ export const messageRouter = router({
               enqueue(message);
 
               // Enqueue to Redis stream (persistent for other clients/page refreshes)
-              await redisStreamQueue!.enqueue(message);
+              if (redisStreamQueue) await redisStreamQueue.enqueue(message);
+              else console.error("Redis stream queue not created");
             };
 
-            // First, enqueue the user message to Redis stream
+            // First, enqueue the message start to Redis stream
             await redisStreamQueue.enqueue({
-              type: "userMessage",
-              message: userMessage as MessageType,
+              type: "messageStart",
+              message: combinedMessage as MessageType,
               chatId: chatId,
             });
 
@@ -375,11 +388,10 @@ export const messageRouter = router({
               return;
             }
 
-            // Emit the initial AI message to both streams
-            await dualEnqueue({
-              type: "aiMessageStart",
-              message: aiMessage as MessageType,
-              chatId: chatId,
+            // Update message status to STREAMING
+            await prisma.message.update({
+              where: { id: combinedMessage.id },
+              data: { status: MessageStatus.STREAMING },
             });
 
             let fullContent = "";
@@ -423,15 +435,17 @@ export const messageRouter = router({
               const stopKey = `stop-stream:${chatId}`;
               const shouldStop = await redisUtil.exists(stopKey);
               if (shouldStop) {
-                console.log(`🛑 Stop requested for chat ${chatId}. Halting AI response stream.`);
+                console.log(
+                  `🛑 Stop requested for chat ${chatId}. Halting AI response stream.`
+                );
                 break;
               }
 
               if (chunk.content && !chunk.isComplete) {
                 fullContent += chunk.content;
                 await dualEnqueue({
-                  type: "aiMessageChunk",
-                  messageId: aiMessage.id,
+                  type: "agentChunk",
+                  messageId: combinedMessage.id,
                   chunk: chunk.content,
                   chatId: chatId,
                 });
@@ -442,20 +456,21 @@ export const messageRouter = router({
               }
             }
 
-            // Update the AI message in the database with the complete content
-            const updatedAiMessage = await prisma.message.update({
-              where: { id: aiMessage.id },
+            // Update the combined message with complete agent content
+            const updatedMessage = await prisma.message.update({
+              where: { id: combinedMessage.id },
               data: {
-                content: fullContent,
+                agentContent: fullContent,
                 status: MessageStatus.COMPLETED,
+                finishedAt: new Date(),
               },
             });
             // console.log("UPDATED AI MESSAGE", updatedAiMessage);
 
             // Emit the final complete message to both streams
             await dualEnqueue({
-              type: "aiMessageComplete",
-              message: updatedAiMessage as MessageType,
+              type: "messageComplete",
+              message: updatedMessage as MessageType,
               chatId: chatId,
             });
 
@@ -599,23 +614,19 @@ export const messageRouter = router({
       const cursorDateTime = new Date(cursor);
 
       let messages: Message[] = [];
-
+      let syncDate;
       if (direction === "forward") {
         // Fetch older messages (going back in time)
         messages = await fetchOlderMessages(chatId, cursorDateTime, limit);
+        syncDate = messages.at(-1)?.finishedAt?.toISOString();
       } else {
         // Fetch newer messages (going forward in time)
         messages = await fetchNewerMessages(chatId, cursorDateTime, limit);
+        syncDate = messages[0]?.finishedAt?.toISOString();
       }
+      syncDate ??= cursor;
 
-      // Calculate sync date for React Query optimization
-      // if last page
-
-      const syncDate = calculateSyncDate(direction, messages, cursor);
-      const streamingMessage = await fetchStreamingMessage(
-        chatId,
-        cursorDateTime
-      );
+      const streamingMessage = await fetchStreamingMessage(chatId);
 
       return {
         messages: messages as MessageType[],
@@ -677,8 +688,10 @@ export const messageRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       console.log(
-        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId
-        }${input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ""
+        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${
+          input.chatId
+        }${
+          input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ""
         }`
       );
 

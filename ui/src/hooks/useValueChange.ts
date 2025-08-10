@@ -1,11 +1,15 @@
 import { useLayoutEffect, useRef } from "react";
 
 /**
- * Custom hook to handle value changes.
+ * Custom hook to handle value changes with latest ref pattern.
  */
 const useValueChange = <T>(value: T, callback: (value: T, prev: T) => void) => {
   const prevRef = useRef<T>(value);
   const callbackRef = useRef<((value: T, prev: T) => void) | null>(callback);
+
+  useLayoutEffect(() => {
+    callbackRef.current = callback;
+  });
 
   useLayoutEffect(() => {
     if (prevRef.current !== value) {

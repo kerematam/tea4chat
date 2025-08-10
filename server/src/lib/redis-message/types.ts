@@ -7,13 +7,18 @@ export interface MessageType {
   id: string;
   createdAt: Date;
   chatId: string;
-  content: string;
-  from: string;
+  
+  // Combined user + agent content
+  userContent: string;
+  agentContent: string | null;
+  
+  // Status
+  status?: string;
 }
 
-// StreamMessage type similar to messageRouter.ts
+// StreamMessage type for combined message streaming
 export type StreamMessage = {
-  type: "userMessage" | "aiMessageStart" | "aiMessageChunk" | "aiMessageComplete";
+  type: "messageStart" | "agentChunk" | "messageComplete";
   message?: MessageType;
   messageId?: string;
   chunk?: string;

@@ -85,6 +85,52 @@ test.describe('Chat Interface', () => {
     // Should be disabled again
     await expect(sendButton).toBeDisabled();
   });
+
+  test('messages persist after sending multiple messages', async ({ page }) => {
+    await page.goto('/chat');
+    
+    // Wait for the page to be fully loaded
+    await page.waitForLoadState('networkidle');
+    
+    const messageInput = page.getByRole('textbox', { name: 'Type your message here...' });
+    const sendButton = page.getByRole('button', { name: 'send message' });
+    
+    // First message - Test the message disappearing bug fix
+    const firstMessage = 'First test message for persistence check';
+    await messageInput.fill(firstMessage);
+    await expect(sendButton).toBeEnabled();
+    await sendButton.click();
+    
+    // Wait for the first message to appear in chat and AI response to complete
+    await expect(page.locator('[data-testid="message"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="message"]').first()).toContainText(firstMessage);
+    
+    // Wait for AI response to complete (look for assistant message)
+    await expect(page.locator('[data-testid="message"][data-role="assistant"]')).toBeVisible({ timeout: 15000 });
+    
+    // Wait a bit to ensure streaming is complete
+    await page.waitForTimeout(1000);
+    
+    // Second message - This should not cause the first message to disappear
+    const secondMessage = 'Second test message to verify persistence';
+    await messageInput.fill(secondMessage);
+    await expect(sendButton).toBeEnabled();
+    await sendButton.click();
+    
+    // Verify that BOTH messages are still visible
+    const messages = page.locator('[data-testid="message"]');
+    
+    // Should have at least 3 messages total (user1, assistant1, user2)
+    await expect(messages).toHaveCount(3, { timeout: 5000 });
+    
+    // Verify first message is still visible
+    await expect(messages.first()).toContainText(firstMessage);
+    
+    // Verify second message is visible
+    await expect(messages.nth(2)).toContainText(secondMessage);
+    
+    console.log('✅ Message persistence test passed - first message remains visible after sending second message');
+  });
 });
 
 test.describe('Settings Page', () => {

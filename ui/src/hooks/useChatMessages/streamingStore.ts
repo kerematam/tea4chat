@@ -1,56 +1,36 @@
 import { create } from "zustand";
-import { StreamChunk } from "./useChatMessages";
 import type { MessageType } from "../types";
-import { queryClient } from "@/services/queryClient";
-import { InfiniteData } from "@tanstack/react-query";
+import { StreamChunk } from "./useChatMessages";
 
 interface StreamingState {
-  streamingMessages: Record<string, MessageType[]>;
+  streamingMessages: Record<string, MessageType | null>;
   actions: {
-    setStreamingMessages: (chatId: string, messages: MessageType[]) => void;
-    addStreamingMessage: (chatId: string, message: MessageType) => void;
+    setStreamingMessage: (chatId: string, message: MessageType | null) => void;
     updateStreamingMessage: (
       chatId: string,
       messageId: string,
       updater: (msg: MessageType) => MessageType
     ) => void;
-    clearStreamingMessages: (chatId: string) => void;
+    clearStreamingMessage: (chatId: string) => void;
     handleStreamChunk: (chatId: string, chunk: StreamChunk) => void;
-    commitStreamingMessagesToQueryCache: (chatId: string) => void;
   };
 }
 
 export const useStreamingStore = create<StreamingState>((set, get) => ({
-  streamingMessages: {} as Record<string, MessageType[]>, // why not just MessageType?
+  streamingMessages: {} as Record<string, MessageType | null>,
 
   actions: {
-    setStreamingMessages: (chatId: string, messages: MessageType[]) => {
-      console.log("setStreamingMessages called", { chatId, messages });
+    setStreamingMessage: (chatId: string, message: MessageType | null) => {
+      console.error(
+        `DEBUG: setStreamingMessage called for chatId: ${chatId}, messageId: ${message?.id}`
+      );
       if (!chatId) return;
       set((state) => ({
         streamingMessages: {
           ...state.streamingMessages,
-          [chatId]: messages,
+          [chatId]: message,
         },
       }));
-    },
-
-    addStreamingMessage: (chatId: string, message: MessageType) => {
-      console.log("addStreamingMessage called", { chatId, message });
-      if (!chatId) return;
-
-      set((state) => {
-        const currentMessages = state.streamingMessages[chatId] || [];
-        const exists = currentMessages.some((msg) => msg.id === message.id);
-        if (exists) return state;
-
-        return {
-          streamingMessages: {
-            ...state.streamingMessages,
-            [chatId]: [...currentMessages, message],
-          },
-        };
-      });
     },
 
     updateStreamingMessage: (
@@ -58,106 +38,64 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
       messageId: string,
       updater: (msg: MessageType) => MessageType
     ) => {
-      set((state) => ({
-        streamingMessages: {
-          ...state.streamingMessages,
-          [chatId]: (state.streamingMessages[chatId] || []).map((msg) =>
-            msg.id === messageId ? updater(msg) : msg
-          ),
-        },
-      }));
-    },
-
-    clearStreamingMessages: (chatId: string) => {
-      set((state) => ({
-        streamingMessages: {
-          ...state.streamingMessages,
-          [chatId]: [],
-        },
-      }));
-    },
-
-    commitStreamingMessagesToQueryCache: (chatId: string) => {
-      if (!chatId) return;
-
-      const messages = get().streamingMessages[chatId];
-      if (!messages || messages.length === 0) return;
-
-      const queryKey = [["message", "getMessages"], { "input": { "chatId": chatId }, "type": "infinite" }];
-
-      queryClient.setQueriesData<InfiniteData<any> | undefined>(
-        {
-          queryKey,
-          exact: false
-        },
-        (oldData) => {
-          console.log("oldData", oldData);
-          console.log("streaming messages to add", messages);
-
-          if (!oldData) return oldData;
-          if (!messages || messages.length === 0) return oldData;
-
-          // Create a Set of existing message IDs across all pages to prevent duplicates
-          const existingMessageIds = new Set<string>();
-          oldData.pages.forEach(page => {
-            page.messages?.forEach((msg: MessageType) => {
-              existingMessageIds.add(msg.id);
-            });
-          });
-
-          // Filter out messages that already exist in the cache
-          const newMessages = messages.filter(msg => !existingMessageIds.has(msg.id));
-
-          if (newMessages.length === 0) {
-            console.log("No new messages to add - all messages already exist in cache");
-            return oldData; // No new messages to add
-          }
-
-          // Create a new page with only the new streaming messages
-          const newPage = {
-            messages: newMessages,
-            direction: "forward",
-            syncDate: newMessages[newMessages.length - 1].createdAt,
-            streamingMessage: null
-          };
-
-          // Update pageParams - add the latest message's createdAt to the beginning
-          const latestMessageDate = newMessages[newMessages.length - 1].createdAt;
-          const updatedPageParams = [latestMessageDate, ...oldData.pageParams];
-
-          return {
-            ...oldData,
-            pages: [newPage, ...oldData.pages],
-            pageParams: updatedPageParams
-          };
+      set((state) => {
+        const currentMessage = state.streamingMessages[chatId];
+        if (!currentMessage || currentMessage.id !== messageId) {
+          return state;
         }
-      );
+
+        return {
+          streamingMessages: {
+            ...state.streamingMessages,
+            [chatId]: updater(currentMessage),
+          },
+        };
+      });
+    },
+
+    clearStreamingMessage: (chatId: string) => {
+      console.error(`DEBUG: Clearing streaming message for chatId: ${chatId}`);
+      set((state) => ({
+        streamingMessages: {
+          ...state.streamingMessages,
+          [chatId]: null,
+        },
+      }));
     },
 
     handleStreamChunk: (_chatId: string, chunk: StreamChunk) => {
       const { actions } = get();
       const chatId = chunk.chatId;
+      console.error(
+        `DEBUG: handleStreamChunk - type: ${chunk.type}, chatId: ${chatId}`
+      );
       switch (chunk.type) {
-        case "userMessage":
-          actions.clearStreamingMessages(chatId);
-          actions.addStreamingMessage(chatId, chunk.message);
+        case "messageStart":
+          console.error(
+            `DEBUG: messageStart - setting message: ${chunk.message.id}`
+          );
+          actions.setStreamingMessage(chatId, chunk.message);
           break;
 
-        case "aiMessageStart":
-          actions.addStreamingMessage(chatId, chunk.message);
-          break;
-
-        case "aiMessageChunk":
+        case "agentChunk":
           actions.updateStreamingMessage(chatId, chunk.messageId, (msg) => ({
             ...msg,
-            content: (msg.content || "") + chunk.chunk,
+            agentContent: (msg.agentContent || "") + chunk.chunk,
           }));
           break;
 
-        case "aiMessageComplete":
-          actions.updateStreamingMessage(chatId, chunk.message.id, () => chunk.message);
-          // actions.commitStreamingMessagesToQueryCache(chatId);
-          // actions.clearStreamingMessages(chatId);
+        case "messageComplete":
+          console.error(
+            `DEBUG: messageComplete - updating message: ${chunk.message.id}`
+          );
+          actions.updateStreamingMessage(
+            chatId,
+            chunk.message.id,
+            () => chunk.message
+          );
+          // console.error(`DEBUG: Committing streaming message to query cache and clearing`);
+          // actions.commitStreamingMessageToQueryCache(chatId);
+          // actions.clearStreamingMessage(chatId);
           break;
 
         default:

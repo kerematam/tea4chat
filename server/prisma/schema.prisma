@@ -86,17 +86,45 @@ model Chat {
 }
 
 model Message {
-  id        String        @id @default(cuid())
-  content   String
-  from      String
-  chatId    String
-  createdAt DateTime      @default(now())
-  modelId   String?
-  status    MessageStatus @default(COMPLETED)
-  chat      Chat          @relation(fields: [chatId], references: [id])
-  model     ModelCatalog? @relation(fields: [modelId], references: [id])
+  id          String        @id @default(cuid())
+  
+  // User's question/prompt
+  userContent String
+  
+  // AI's response (nullable during streaming)
+  agentContent String?
+  
+  // Relations/metadata
+  chatId      String
+  modelId     String?
+  status      MessageStatus @default(STARTED)
+  
+  // Timing
+  createdAt   DateTime      @default(now()) // When user's message created (STARTED)
+  finishedAt  DateTime?     // When AI finished responding (COMPLETED/FAILED/ABORTED)
+  
+  // Token usage tracking
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  
+  // Performance metrics  
+  providerLatencyMs Int?    // Total time from provider request to completion
+  firstByteMs      Int?    // Time to first streamed byte
+  
+  // Error handling
+  errorReason      String?
+  
+  // Flexible metadata (tool calls, system prompt hash, temperature, etc.)
+  metadata         Json?
+  
+  // Relations
+  chat        Chat          @relation(fields: [chatId], references: [id])
+  model       ModelCatalog? @relation(fields: [modelId], references: [id])
 
   @@index([chatId])
+  @@index([chatId, createdAt])
+  @@index([status])
 }
 
 model Session {
@@ -197,9 +225,9 @@ model OwnerSettings {
 }
 
 enum MessageStatus {
-  STARTED
-  STREAMING
-  COMPLETED
-  FAILED
-  ABORTED
+  STARTED // user message is saved in db
+  STREAMING // agent message started streaming
+  COMPLETED // agent message completed
+  FAILED // agent message failed
+  ABORTED // agent message aborted
 }

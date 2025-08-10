@@ -30,25 +30,16 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
 
     const { enqueue, cleanup } = streamQueue;
 
-    // user message
-    const userMessage: MessageType = {
-      id: `user_${randomBytes(8).toString('hex')}`,
+    // Combined message with user content (agent content will be filled during streaming)
+    const combinedMessage: MessageType = {
+      id: `msg_${randomBytes(8).toString('hex')}`,
       createdAt: new Date(),
       chatId,
-      content: userContent,
-      from: 'user',
+      userContent: userContent,
+      agentContent: null,
+      status: 'STARTED',
     };
-    await enqueue({ type: 'userMessage', message: userMessage, chatId });
-
-    // ai start
-    const aiMessage: MessageType = {
-      id: `ai_${randomBytes(8).toString('hex')}`,
-      createdAt: new Date(),
-      chatId,
-      content: '',
-      from: 'assistant',
-    };
-    await enqueue({ type: 'aiMessageStart', message: aiMessage, chatId });
+    await enqueue({ type: 'messageStart', message: combinedMessage, chatId });
 
     const fullContent = generateContent(type, userContent);
     const chunks = splitIntoChunks(fullContent, maxChunks);
@@ -67,8 +58,8 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
       accumulated += chunk;
       console.log(`🎬 Streamed chunk ${i + 1} for chat ${chatId}`);
       await enqueue({
-        type: 'aiMessageChunk',
-        messageId: aiMessage.id,
+        type: 'agentChunk',
+        messageId: combinedMessage.id,
         chunk,
         chunkId: `chunk-${i + 1}`,
         chatId,
@@ -80,8 +71,12 @@ export async function startMessageChunkStream(data: MessageChunkStreamData): Pro
     }
 
     // Always signal completion so subscribers can finish cleanly
-    const completedMessage: MessageType = { ...aiMessage, content: accumulated };
-    await enqueue({ type: 'aiMessageComplete', message: completedMessage, chatId });
+    const completedMessage: MessageType = { 
+      ...combinedMessage, 
+      agentContent: accumulated, 
+      status: 'COMPLETED' 
+    };
+    await enqueue({ type: 'messageComplete', message: completedMessage, chatId });
 
     // Clean up the queue
     cleanup();
@@ -152,7 +147,7 @@ export async function* subscribeToMessageChunkStream(
             yield event;
             lastSeenId = messageId; // Update last seen ID
 
-            if (event.type === 'aiMessageComplete') {
+            if (event.type === 'messageComplete') {
               console.log(`🏁 Real-time stream completed for ${chatId}`);
               streamCompleted = true;
               break;

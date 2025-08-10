@@ -8,9 +8,11 @@ import { ChatTextForm } from "../../components/ChatTextForm/ChatTextForm";
 import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
 
-import { useChatMessages } from "../../hooks/useChatMessages/useChatMessages";
+import {
+  MessageType,
+  useChatMessages,
+} from "../../hooks/useChatMessages/useChatMessages";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
-
 
 const Chat = () => {
   const { id: chatId } = useParams<{ id: string }>();
@@ -24,9 +26,10 @@ const Chat = () => {
   // }, []);
 
   // Use our custom hook for all chat functionality
+  console.log("chatId", chatId);
   const {
     messages: previousMessages,
-    streamingMessages,
+    streamingMessage,
     isLoading,
     error,
     fetchNextPage,
@@ -43,6 +46,7 @@ const Chat = () => {
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
+      console.error(`DEBUG: Chat created with ID: ${chatId}`);
       navigate(`/chat/${chatId}`);
     },
   });
@@ -61,6 +65,7 @@ const Chat = () => {
     isFetching: isFetchingPreviousPage,
   });
 
+  console.log("streamingMessage", streamingMessage);
   // Handle messages and streaming messages separately
   // const [previousMessages, newMessages] = useMessagesGrouping(messages);
 
@@ -120,7 +125,7 @@ const Chat = () => {
             }}
           >
             <Typography variant="h5" component="h1" gutterBottom>
-              Start a New Chat 123
+              Start a New Chat
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
               Type your first message below to begin a new conversation.
@@ -169,38 +174,71 @@ const Chat = () => {
     return <div>Loading...</div>;
   }
 
-  const renderMessages = (messagesToRender: any[]) => {
+  const renderMessages = (messagesToRender: MessageType[]) => {
     return messagesToRender.map((message) => (
-      <Box key={message.id}>
+      <Box key={message.id} data-testid="message-pair">
+        {/* User Message */}
         <Box
+          data-testid="message"
+          data-role="user"
+          data-message-id={message.id}
           sx={{
             display: "flex",
-            justifyContent: message.from === "user" ? "flex-end" : "flex-start",
+            justifyContent: "flex-end",
             mb: 2,
           }}
         >
-          {message.from === "user" ? (
-            <Box
-              sx={{
-                height: "100%",
-                maxWidth: "70%",
-                p: 2,
-                borderRadius: 2,
-                bgcolor: "background.paper",
-                border: (theme) =>
-                  theme.palette.mode === "light" ? "2px solid" : "none",
-                borderColor: (theme) =>
-                  theme.palette.mode === "light" ? "divider" : "transparent",
-              }}
-            >
-              {message.content}
-            </Box>
-          ) : (
+          <Box
+            sx={{
+              height: "100%",
+              maxWidth: "70%",
+              p: 2,
+              borderRadius: 2,
+              bgcolor: "background.paper",
+              border: (theme) =>
+                theme.palette.mode === "light" ? "2px solid" : "none",
+              borderColor: (theme) =>
+                theme.palette.mode === "light" ? "divider" : "transparent",
+            }}
+          >
+            {message.userContent}
+          </Box>
+        </Box>
+
+        {/* Agent Message (only if response exists) */}
+        {message.agentContent && (
+          <Box
+            data-testid="message"
+            data-role="assistant"
+            data-message-id={message.id}
+            sx={{
+              display: "flex",
+              justifyContent: "flex-start",
+              mb: 2,
+            }}
+          >
             <Box sx={{ width: "100%" }}>
               <AgentMessage message={message} />
             </Box>
-          )}
-        </Box>
+          </Box>
+        )}
+
+        {/* Streaming indicator for incomplete messages */}
+        {!message.agentContent && message.status === "STREAMING" && (
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "flex-start",
+              mb: 2,
+            }}
+          >
+            <Box
+              sx={{ width: "100%", p: 2, fontStyle: "italic", opacity: 0.7 }}
+            >
+              AI is thinking...
+            </Box>
+          </Box>
+        )}
       </Box>
     ));
   };
@@ -263,10 +301,10 @@ const Chat = () => {
           sx={{
             display: "flex",
             flexDirection: "column",
-            // backgroundColor: "red",
+            backgroundColor: "red",
           }}
         >
-          {renderMessages(streamingMessages)}
+          {streamingMessage && renderMessages([streamingMessage])}
         </Box>
 
         {/* Previous messages section */}
