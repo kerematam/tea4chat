@@ -164,19 +164,6 @@ export const useChatMessages = ({
     skipInitialLoad: true, // Skip refresh on initial load
   });
 
-  // Debug logging to track message state changes
-  // useEffect(() => {
-  //   // console.error(`DEBUG: useChatMessages - prevMessages count: ${prevMessages.length}, streamingMessages count: ${streamingMessages.length}, chatId: ${chatId}`);
-  //   // console.error(`DEBUG: prevMessages IDs: ${prevMessages.map(m => m.id).join(', ')}`);
-  //   // console.error(`DEBUG: streamingMessages IDs: ${streamingMessages.map(m => m.id).join(', ')}`);
-  // }, [
-  //   prevMessages.length,
-  //   streamingMessages,
-  //   chatId,
-  //   prevMessages,
-  //   streamingMessages,
-  // ]);
-
   return {
     // Messages data
     messages: prevMessages, // Cached/previous messages
