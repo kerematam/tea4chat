@@ -32,7 +32,7 @@
     "@types/bun": "latest",
     "@types/cors": "^2.8.17",
     "@whatwg-node/fetch": "^0.10.7",
-    "typescript": "^5.0.0",
+    "typescript": "^5.9.2",
     "vitest": "^3.1.4"
   },
   "dependencies": {

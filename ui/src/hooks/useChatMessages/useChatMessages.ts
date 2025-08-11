@@ -105,8 +105,10 @@ export const useChatMessages = ({
   console.log("messagesQuery.data", messagesQuery.data);
 
   // Sync messages hook
-  const { prevMessages, streamingMessage, handleStreamChunk } =
-    useSyncMessages(messagesQuery.data?.pages || [], chatId || "");
+  const { prevMessages, streamingMessage, handleStreamChunk } = useSyncMessages(
+    messagesQuery.data?.pages || [],
+    chatId || ""
+  );
 
   // Streaming hook
   const streaming = useChatStreaming({
@@ -114,18 +116,8 @@ export const useChatMessages = ({
     onChatCreated,
     onStreamChunk: handleStreamChunk,
     utils,
-    // this is commented out because we should no longer need it as we update
-    // the react query cache on streamingStore on stream end with
-    // commitStreamingMessagesToQueryCache
-    //
-    onStreamEnd: () => {
-      messagesQuery.fetchPreviousPage();
-      // if (messagesQuery.data?.pages?.[0]?.direction === "backward") {
-      //   messagesQuery.fetchPreviousPage();
-      // } else {
-      //   messagesQuery.fetchNextPage();
-      // }
-    },
+    // TODO: move state synching implementation to one place. it is too spread out
+    onStreamEnd: () => messagesQuery.fetchPreviousPage(),
   });
 
   // Manual sync function to trigger Redis stream listening

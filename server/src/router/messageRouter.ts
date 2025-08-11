@@ -632,7 +632,7 @@ export const messageRouter = router({
         messages: messages as MessageType[],
         direction,
         syncDate,
-        streamingMessage,
+        streamingMessage: streamingMessage as MessageType | null,
       };
     }),
 
