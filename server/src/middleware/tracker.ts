@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
-import { middleware } from "../trpc";
+import { getCookie, setCookie } from 'hono/cookie';
 import { updateTracker } from "../services/tracker.service";
-import { getCookie, setCookie } from 'hono/cookie'
+import { middleware } from "../trpc";
 
 const SESSION_COOKIE_NAME = "session_id";
 const SESSION_DURATION_DAYS = 30;
@@ -46,7 +46,12 @@ export const withTracker = middleware(async ({ ctx, next }) => {
   let sessionId = getCookie(ctx.honoContext, SESSION_COOKIE_NAME);
   if (!sessionId) {
     sessionId = generateSessionId();
-    setCookie(ctx.honoContext, SESSION_COOKIE_NAME, sessionId);
+    setCookie(ctx.honoContext, SESSION_COOKIE_NAME, sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: SESSION_DURATION_DAYS * 24 * 60 * 60,
+      path: "/",
+    });
   }
 
   try {
