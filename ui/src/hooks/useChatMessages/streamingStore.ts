@@ -21,9 +21,6 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
 
   actions: {
     setStreamingMessage: (chatId: string, message: MessageType | null) => {
-      console.error(
-        `DEBUG: setStreamingMessage called for chatId: ${chatId}, messageId: ${message?.id}`
-      );
       if (!chatId) return;
       set((state) => ({
         streamingMessages: {
@@ -66,14 +63,8 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
     handleStreamChunk: (_chatId: string, chunk: StreamChunk) => {
       const { actions } = get();
       const chatId = chunk.chatId;
-      console.error(
-        `DEBUG: handleStreamChunk - type: ${chunk.type}, chatId: ${chatId}`
-      );
       switch (chunk.type) {
         case "messageStart":
-          console.error(
-            `DEBUG: messageStart - setting message: ${chunk.message.id}`
-          );
           actions.setStreamingMessage(chatId, chunk.message);
           break;
 
@@ -85,21 +76,14 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
           break;
 
         case "messageComplete":
-          console.error(
-            `DEBUG: messageComplete - updating message: ${chunk.message.id}`
-          );
           actions.updateStreamingMessage(
             chatId,
             chunk.message.id,
             () => chunk.message
           );
-          // console.error(`DEBUG: Committing streaming message to query cache and clearing`);
-          // actions.commitStreamingMessageToQueryCache(chatId);
-          // actions.clearStreamingMessage(chatId);
           break;
 
         default:
-          console.warn("Unknown stream chunk type:", chunk);
           break;
       }
     },

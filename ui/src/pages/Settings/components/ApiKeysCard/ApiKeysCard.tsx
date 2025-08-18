@@ -1,21 +1,21 @@
-import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  TextField,
-  Button,
-  CircularProgress,
-  Chip,
-  IconButton,
-} from "@mui/material";
-import KeyIcon from "@mui/icons-material/Key";
-import SaveIcon from "@mui/icons-material/Save";
-import { Formik, Form, Field, FieldProps } from "formik";
-import * as Yup from "yup";
+import { useNotify } from "@/providers/NotificationProdiver/useNotify";
 import { trpc } from "@/services/trpc";
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import { useNotify } from "@/providers/NotificationProdiver/useNotify";
+import KeyIcon from "@mui/icons-material/Key";
+import SaveIcon from "@mui/icons-material/Save";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  IconButton,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { Field, FieldProps, Form, Formik } from "formik";
+import * as Yup from "yup";
 interface FormValues {
   openaiApiKey: string;
   anthropicApiKey: string;
@@ -37,7 +37,6 @@ const validationSchema = Yup.object({
 
 const ApiKeysCard = () => {
   const { data: settings, refetch } = trpc.settings.get.useQuery();
-  console.log(settings);
   const notify = useNotify();
   
   const updateApiKeysMutation = trpc.settings.updateApiKeys.useMutation({

@@ -89,20 +89,23 @@ export const useChatMessages = ({
       refetchOnMount: false, // Don't refetch when component mounts
       refetchOnReconnect: true, // Keep this for network issues
       staleTime: 1000 * 60 * 60 * 24 * 7, // 7 days - consider data fresh for longer
-      // older messages
+      // older messages.
       getNextPageParam: (lastPage) => {
+        // If oldest page, has returned less than QUERY_LIMIT messages then we
+        // don't need to fetch more messages
         if (!lastPage || lastPage.messages.length < QUERY_LIMIT) {
           return undefined;
         }
         return lastPage.messages[0].finishedAt;
       },
-      // newer messages
+      // newer messages.
       getPreviousPageParam: (firstPage) => {
+        // We will keep fetching newer always active, so getPreviousPageParam
+        // should always return a value
         return firstPage.messages.at(-1)?.finishedAt || firstPage.syncDate;
       },
     }
   );
-  console.log("messagesQuery.data", messagesQuery.data);
 
   // Sync messages hook
   const { prevMessages, streamingMessage, handleStreamChunk } = useSyncMessages(
@@ -117,7 +120,9 @@ export const useChatMessages = ({
     onStreamChunk: handleStreamChunk,
     utils,
     // TODO: move state synching implementation to one place. it is too spread out
-    onStreamEnd: () => messagesQuery.fetchPreviousPage(),
+    onStreamEnd: () => {
+      messagesQuery.fetchPreviousPage();
+    },
   });
 
   // Manual sync function to trigger Redis stream listening
@@ -133,7 +138,6 @@ export const useChatMessages = ({
 
   // this clears the streaming messages when new messages comes from infinite query
   const { actions } = useStreamingStore();
-  console.log("2 chatId", chatId);
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
     (streamingMessageId) => {
@@ -147,15 +151,23 @@ export const useChatMessages = ({
     }
   );
 
-  // Check if there are more newer messages to load (previous page in backward direction)
+  // NOTE: hasPreviousPage is only used, when there is new pages to fetch on
+  // page load and we don't rely on `messagesQuery.hasPreviousPage` here. We
+  // always return a cursor from `getPreviousPageParam` to keep the "load newer"
+  // behavior available for manual refresh. That makes React Query think there
+  // is always a previous page, which is not a real indicator of newer data.
+  // Instead, derive the actual "has newer" state by inspecting the first page:
+  // - it must be fetched in the "backward" (newer) direction, and
+  // - it must be a full page (length === QUERY_LIMIT). This tells us there may
+  //   be more newer messages to load. Check if there are more newer messages to
+  //   load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
     if (!messagesQuery.data?.pages?.length) return false;
 
     const firstPage = messagesQuery.data.pages[0];
-    const hasMoreMessagesToLoad = firstPage?.messages?.length === QUERY_LIMIT;
-    const isNewerMessages = firstPage?.direction === "backward";
+    if (firstPage.direction !== "backward") return false;
 
-    return hasMoreMessagesToLoad && isNewerMessages;
+    return firstPage.messages.length === QUERY_LIMIT;
   }, [messagesQuery.data?.pages]);
 
   // Use custom hook for window focus refresh instead of manual implementation

@@ -21,12 +21,6 @@ const Chat = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // useEffect(() => {
-  //   console.log("MOUNTED", chatId);
-  // }, []);
-
-  // Use our custom hook for all chat functionality
-  console.log("chatId", chatId);
   const {
     messages: previousMessages,
     streamingMessage,
@@ -46,14 +40,16 @@ const Chat = () => {
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
-      console.error(`DEBUG: Chat created with ID: ${chatId}`);
       navigate(`/chat/${chatId}`);
     },
   });
 
   // Infinite scroll for loading older messages
   const { triggerRef: loadMoreRef } = useInfiniteScroll({
-    fetchMore: fetchNextPage,
+    fetchMore: () => {
+      debugger;
+      fetchNextPage();
+    },
     hasMore: hasNextPage,
     isFetching: isFetchingNextPage,
   });
@@ -64,10 +60,6 @@ const Chat = () => {
     hasMore: hasPreviousPage,
     isFetching: isFetchingPreviousPage,
   });
-
-  console.log("streamingMessage", streamingMessage);
-  // Handle messages and streaming messages separately
-  // const [previousMessages, newMessages] = useMessagesGrouping(messages);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -91,10 +83,6 @@ const Chat = () => {
   const [newChatModelId, setNewChatModelId] = useState<string | undefined>(
     undefined
   );
-
-  useEffect(() => {
-    console.log("mounting");
-  }, []);
 
   if (!chatId) {
     return (
