@@ -1,5 +1,6 @@
 import { httpBatchStreamLink } from "@trpc/client";
 import { useState } from "react";
+import superjson from "superjson";
 import { queryClient } from "../services/queryClient";
 import { trpc } from "../services/trpc";
 
@@ -9,6 +10,7 @@ export function TrpcProvider({ children }: { children: React.ReactNode }) {
       links: [
         httpBatchStreamLink({
           url: "/trpc",
+          transformer: superjson,
         }),
       ],
     })
