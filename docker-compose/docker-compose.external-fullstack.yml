@@ -47,6 +47,8 @@ services:
         condition: service_healthy
     command: >
       sh -c "
+        apt-get update -y && apt-get install -y openssl &&
+        echo 'Installing dependencies...' &&
         echo 'Generating Prisma Client...' &&
         bun prisma generate &&
         echo 'Running database migrations...' &&
