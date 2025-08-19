@@ -3,7 +3,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import type { inferProcedureOutput } from "@trpc/server";
 import { create } from "zustand";
 import type { AppRouter } from "../../../../server/src/router";
-import type { MessageType } from "../types";
+import type { MessageType } from "../../../../server/src/router/messageRouter";
 import { StreamChunk } from "./useChatMessages";
 
 // Type for the getMessages procedure output

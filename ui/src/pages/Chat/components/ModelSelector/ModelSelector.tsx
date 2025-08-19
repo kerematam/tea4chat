@@ -1,12 +1,29 @@
-import { useState, useRef, useEffect } from "react";
-import { Box, Button, Modal, Card, CardContent, Typography, Grid, Chip, CircularProgress, Switch, FormControlLabel, Tooltip, IconButton, Divider } from "@mui/material";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import { trpc } from "@/services/trpc";
 import { useNotify } from "@/providers/NotificationProdiver/useNotify";
+import { trpc } from "@/services/trpc";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  Modal,
+  Switch,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import { useEffect, useRef, useState } from "react";
 
 interface ModelSelectorProps {
   chatId?: string;
-  onLocalSelectionChange?: (model: { id: string; name: string; provider: string } | null) => void;
+  onLocalSelectionChange?: (
+    model: { id: string; name: string; provider: string } | null
+  ) => void;
 }
 
 interface ModelCatalog {
@@ -31,7 +48,10 @@ interface ModelInfo {
   provider: string;
 }
 
-const ModelSelector = ({ chatId, onLocalSelectionChange }: ModelSelectorProps) => {
+const ModelSelector = ({
+  chatId,
+  onLocalSelectionChange,
+}: ModelSelectorProps) => {
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const [tempSelection, setTempSelection] = useState<ModelInfo | null>(null);
   const [applyToAll, setApplyToAll] = useState<boolean>(false);
@@ -73,7 +93,11 @@ const ModelSelector = ({ chatId, onLocalSelectionChange }: ModelSelectorProps) =
 
   /* ------------------------------- Helpers -------------------------------- */
   const handleModelSelect = (model: ModelCatalog) => {
-    setTempSelection({ id: model.id, name: model.name, provider: model.provider });
+    setTempSelection({
+      id: model.id,
+      name: model.name,
+      provider: model.provider,
+    });
   };
 
   // Focus trap effect
@@ -147,13 +171,13 @@ const ModelSelector = ({ chatId, onLocalSelectionChange }: ModelSelectorProps) =
         >
           {/* Header */}
           <Box sx={{ p: 4, pb: 2 }}>
-          <Typography
-            id="modal-title"
-            variant="h5"
+            <Typography
+              id="modal-title"
+              variant="h5"
               sx={{ textAlign: "center" }}
-          >
-            Choose AI Model
-          </Typography>
+            >
+              Choose AI Model
+            </Typography>
           </Box>
 
           {/* Scrollable Content */}
@@ -165,91 +189,94 @@ const ModelSelector = ({ chatId, onLocalSelectionChange }: ModelSelectorProps) =
               pb: 2,
             }}
           >
-          {isLoading && (
-            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-              <CircularProgress />
-            </Box>
-          )}
-
-          {error && (
-            <Typography color="error" sx={{ textAlign: "center", p: 2 }}>
-              Failed to load models: {error.message}
-            </Typography>
-          )}
-
-          {modelData &&
-            modelData.providers.map((providerGroup: ProviderGroup) => (
-              <Box key={providerGroup.provider} sx={{ mb: 4 }}>
-                <Typography variant="h6" sx={{ mb: 2, color: "primary.main" }}>
-                  {capitalizeProvider(providerGroup.provider)} Models
-                </Typography>
-                <Grid
-                  container
-                  spacing={2}
-                  role="listbox"
-                  aria-label={`${capitalizeProvider(
-                    providerGroup.provider
-                  )} Models`}
-                >
-                  {providerGroup.models.map((model) => (
-                    <Grid item xs={12} sm={6} key={model.id}>
-                      <Card
-                        component="button"
-                        role="option"
-                        aria-selected={tempSelection?.id === model.id}
-                        tabIndex={0}
-                        sx={{
-                          cursor: "pointer",
-                          transition: "all 0.2s",
-                          border: "1px solid",
-                          borderColor: "divider",
-                          boxShadow:
-                            tempSelection?.id === model.id
-                              ? "0 0 0 2px"
-                              : "none",
-                          color:
-                            tempSelection?.id === model.id
-                              ? "primary.main"
-                              : "currentColor",
-                          backgroundColor: "transparent",
-                          textAlign: "left",
-                          width: "100%",
-                          p: 0,
-                          "&:hover": { boxShadow: 4 },
-                          "&:focus": {
-                            outline: "2px solid",
-                            outlineColor: "primary.main",
-                            outlineOffset: "2px",
-                          },
-                        }}
-                        onClick={() => handleModelSelect(model)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleModelSelect(model);
-                          }
-                        }}
-                      >
-                        <CardContent sx={{ width: "100%" }}>
-                          <Typography variant="h6">{model.name}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {model.description || "No description available"}
-                          </Typography>
-                          {!model.isEnabled && (
-                            <Chip
-                              label="Disabled"
-                              size="small"
-                              color="error"
-                              sx={{ mt: 1 }}
-                            />
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
+            {isLoading && (
+              <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+                <CircularProgress />
               </Box>
-            ))}
+            )}
+
+            {error && (
+              <Typography color="error" sx={{ textAlign: "center", p: 2 }}>
+                Failed to load models: {error.message}
+              </Typography>
+            )}
+
+            {modelData &&
+              modelData.providers.map((providerGroup: ProviderGroup) => (
+                <Box key={providerGroup.provider} sx={{ mb: 4 }}>
+                  <Typography
+                    variant="h6"
+                    sx={{ mb: 2, color: "primary.main" }}
+                  >
+                    {capitalizeProvider(providerGroup.provider)} Models
+                  </Typography>
+                  <Grid
+                    container
+                    spacing={2}
+                    role="listbox"
+                    aria-label={`${capitalizeProvider(
+                      providerGroup.provider
+                    )} Models`}
+                  >
+                    {providerGroup.models.map((model) => (
+                      <Grid item xs={12} sm={6} key={model.id}>
+                        <Card
+                          component="button"
+                          role="option"
+                          aria-selected={tempSelection?.id === model.id}
+                          tabIndex={0}
+                          sx={{
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            boxShadow:
+                              tempSelection?.id === model.id
+                                ? "0 0 0 2px"
+                                : "none",
+                            color:
+                              tempSelection?.id === model.id
+                                ? "primary.main"
+                                : "currentColor",
+                            backgroundColor: "transparent",
+                            textAlign: "left",
+                            width: "100%",
+                            p: 0,
+                            "&:hover": { boxShadow: 4 },
+                            "&:focus": {
+                              outline: "2px solid",
+                              outlineColor: "primary.main",
+                              outlineOffset: "2px",
+                            },
+                          }}
+                          onClick={() => handleModelSelect(model)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleModelSelect(model);
+                            }
+                          }}
+                        >
+                          <CardContent sx={{ width: "100%" }}>
+                            <Typography variant="h6">{model.name}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {model.description || "No description available"}
+                            </Typography>
+                            {!model.isEnabled && (
+                              <Chip
+                                label="Disabled"
+                                size="small"
+                                color="error"
+                                sx={{ mt: 1 }}
+                              />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              ))}
           </Box>
 
           {/* Sticky Bottom Actions */}
@@ -280,15 +307,19 @@ const ModelSelector = ({ chatId, onLocalSelectionChange }: ModelSelectorProps) =
                     Set as default
                     <Tooltip
                       placement="top"
-                      componentsProps={{ tooltip: { sx: { maxWidth: 300, p: 2 } } }}
+                      componentsProps={{
+                        tooltip: { sx: { maxWidth: 300, p: 2 } },
+                      }}
                       title={
                         <Box>
                           <Typography variant="subtitle1" fontWeight={600}>
-                            Current default: {selectionData?.default?.name || "none"}
+                            Current default:{" "}
+                            {selectionData?.default?.name || "none"}
                           </Typography>
                           <Divider sx={{ my: 1 }} />
                           <Typography variant="body2">
-                            Sets this as your default model for new chats and any existing chats without a custom model.
+                            Sets this as your default model for new chats and
+                            any existing chats without a custom model.
                           </Typography>
                         </Box>
                       }
@@ -310,7 +341,10 @@ const ModelSelector = ({ chatId, onLocalSelectionChange }: ModelSelectorProps) =
                     if (applyToAll) {
                       updateDefault.mutate({ modelId: tempSelection.id });
                     } else if (chatId) {
-                      updateChatModel.mutate({ chatId, modelId: tempSelection.id });
+                      updateChatModel.mutate({
+                        chatId,
+                        modelId: tempSelection.id,
+                      });
                     } else {
                       onLocalSelectionChange?.(tempSelection);
                       setModelModalOpen(false);

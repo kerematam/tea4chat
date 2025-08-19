@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { MessageType } from "../types";
+import type { MessageType } from "../../../../server/src/router/messageRouter";
 import { useStreamingStore } from "./streamingStore";
 import { StreamChunk } from "./useChatMessages";
 

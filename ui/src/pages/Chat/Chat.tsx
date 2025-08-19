@@ -47,7 +47,6 @@ const Chat = () => {
   // Infinite scroll for loading older messages
   const { triggerRef: loadMoreRef } = useInfiniteScroll({
     fetchMore: () => {
-      debugger;
       fetchNextPage();
     },
     hasMore: hasNextPage,

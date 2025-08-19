@@ -1,4 +1,4 @@
-import { MessageType } from "@/hooks/types";
+import type { MessageType } from "@/hooks/useChatMessages/useChatMessages";
 import { Box } from "@mui/material";
 import { useMemo } from "react";
 import { MarkdownHighlighter } from "../../../../components/MarkdownHighlighter/MarkdownHighlighter";

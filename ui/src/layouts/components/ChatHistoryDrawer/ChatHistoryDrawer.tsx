@@ -116,7 +116,9 @@ const ChatHistoryDrawer = ({
     hasNextPage,
     isFetchingNextPage,
   } = trpc.chat.getAll.useInfiniteQuery(
-    { limit: 10 }, // Smaller limit for better UX
+    {
+      limit: 10,
+    },
     {
       enabled: open, // Only fetch when drawer is open
       getNextPageParam: (lastPage) => lastPage.nextCursor,

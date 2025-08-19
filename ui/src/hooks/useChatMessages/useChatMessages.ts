@@ -37,10 +37,11 @@ import useSyncMessages from "./useSyncMessages";
  * that provides real-time streaming with reliable message persistence and pagination.
  */
 
-// Re-export MessageType from shared types to maintain consistency
-export type { MessageType } from "../types";
+// Import MessageType directly from server (superjson preserves Date types)
+import type { MessageType } from "../../../../server/src/router/messageRouter";
 
-import { MessageType } from "../types";
+// Re-export MessageType for components that use this hook
+export type { MessageType };
 
 export type StreamChunk =
   | { type: "messageStart"; message: MessageType; chatId: string }
@@ -66,8 +67,7 @@ interface UseChatMessagesProps {
   };
 }
 
-// TODO: streaming only works on 4
-const QUERY_LIMIT = 2;
+const QUERY_LIMIT = 10;
 
 export const useChatMessages = ({
   chatId,
@@ -83,7 +83,7 @@ export const useChatMessages = ({
       limit: QUERY_LIMIT,
     },
     {
-      initialCursor: new Date().toISOString(),
+      initialCursor: new Date(),
       enabled: !!chatId, // Only run query when chatId exists
       refetchOnWindowFocus: false, // Don't refetch on window focus
       refetchOnMount: false, // Don't refetch when component mounts
@@ -119,22 +119,14 @@ export const useChatMessages = ({
     onChatCreated,
     onStreamChunk: handleStreamChunk,
     utils,
-    // TODO: move state synching implementation to one place. it is too spread out
-    onStreamEnd: () => {
-      messagesQuery.fetchPreviousPage();
-    },
   });
 
   // Manual sync function to trigger Redis stream listening
   const manualSync = useCallback(() => {
     if (!chatId) return;
-
-    // Get syncDate from the first page to avoid processing already cached messages
-    const firstPage = messagesQuery.data?.pages?.[0];
-    const fromTimestamp = firstPage?.syncDate;
-
-    streaming.listenToStream(fromTimestamp);
-  }, [chatId, streaming, messagesQuery.data?.pages]);
+    
+    streaming.listenToStream();
+  }, [chatId, streaming]);
 
   // this clears the streaming messages when new messages comes from infinite query
   const { actions } = useStreamingStore();

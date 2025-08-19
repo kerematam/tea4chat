@@ -10,7 +10,6 @@ interface UseChatStreamingProps {
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
   onStreamChunk?: (chunk: StreamChunk) => void;
   utils: ReturnType<typeof trpc.useUtils>; // TRPC utils for invalidating chat list
-  onStreamEnd?: (chatId: string) => void;
 }
 
 // TODO: we unnessarily evaluate both agent message and user message on database at
@@ -55,7 +54,6 @@ export const useChatStreaming = ({
   onChatCreated,
   onStreamChunk,
   utils,
-  onStreamEnd,
 }: UseChatStreamingProps) => {
   const { error } = useNotify();
 
@@ -96,8 +94,6 @@ export const useChatStreaming = ({
         actions.clearStreamingMessage(chatId!);
         console.error("Stream processing error:", err);
         error(`Failed to process stream: ${(err as Error).message}`);
-      } finally {
-        onStreamEnd?.(chatId!);
       }
     },
     onError: (err) => {
@@ -124,8 +120,6 @@ export const useChatStreaming = ({
           if (!isUserAbortError(err)) {
             error(`Failed to listen to stream: ${(err as Error).message}`);
           }
-        } finally {
-          onStreamEnd?.(chatId!);
         }
       },
       onError: (err) => {
@@ -169,13 +163,10 @@ export const useChatStreaming = ({
 
   // Manual sync function to trigger Redis stream listening
   const listenToStream = useCallback(
-    (fromTimestamp?: string) => {
+    () => {
       if (!chatId || isActive) return;
 
-      listenToStreamMutation.mutate({
-        chatId,
-        ...(fromTimestamp && { fromTimestamp }),
-      });
+      listenToStreamMutation.mutate({ chatId });
     },
     [chatId, isActive, listenToStreamMutation]
   );
