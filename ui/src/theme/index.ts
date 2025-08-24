@@ -117,14 +117,14 @@ const commonThemeOptions: ThemeOptions = {
   },
 };
 
-// Brand colors - Warm palette
+// Brand colors - Rich red palette
 export const brandColors = {
-  primary: "#F97316", // Warm orange
+  primary: "#A82A24", // Rich red
   secondary: "#EAB308", // Golden yellow
-  accent: "#DC2626", // Warm red
-  success: "#16A34A", // Warm green
+  accent: "#C93B35", // Lighter red
+  success: "#16A34A", // Green
   warning: "#F59E0B", // Amber
-  error: "#DC2626", // Warm red
+  error: "#DC2626", // Red
   gold: "#FBBF24", // Rich gold
 };
 
@@ -133,9 +133,9 @@ const lightTheme = createTheme({
   palette: {
     mode: "light",
     primary: {
-      main: "#F97316", // Warm orange
-      light: "#FB923C",
-      dark: "#EA580C",
+      main: "#A82A24", // Rich red
+      light: "#C93B35",
+      dark: "#871217",
       contrastText: "#FFFFFF",
     },
     secondary: {
@@ -145,17 +145,17 @@ const lightTheme = createTheme({
       contrastText: "#FFFFFF",
     },
     background: {
-      default: "#FEF7ED", // Warm cream
+      default: "#FEF5F5", // Very light red tint
       paper: "#FFFFFF",
     },
     text: {
-      primary: "#451A03", // Warm dark brown
-      secondary: "#92400E", // Warm brown
+      primary: "#2D1B1B", // Dark reddish brown
+      secondary: "#7A2E2E", // Medium red brown
     },
-    divider: "#FED7AA", // Warm peach divider
+    divider: "#A82A241F", // Light red divider
     action: {
-      hover: "rgba(249, 115, 22, 0.04)",
-      selected: "rgba(249, 115, 22, 0.08)",
+      hover: "rgba(168, 42, 36, 0.04)",
+      selected: "rgba(168, 42, 36, 0.08)",
       disabled: "rgba(69, 26, 3, 0.26)",
       disabledBackground: "rgba(69, 26, 3, 0.12)",
     },
@@ -182,10 +182,10 @@ const darkTheme = createTheme({
   palette: {
     mode: "dark",
     primary: {
-      main: "#FB923C", // Warm orange (lighter for dark theme)
-      light: "#FED7AA",
-      dark: "#F97316",
-      contrastText: "#1A0B05",
+      main: "#C93B35", // Rich red (lighter for dark theme)
+      light: "#E54C46",
+      dark: "#A82A24",
+      contrastText: "#FFFFFF",
     },
     secondary: {
       main: "#FDE047", // Bright golden yellow
@@ -194,19 +194,19 @@ const darkTheme = createTheme({
       contrastText: "#1F1600",
     },
     background: {
-      default: "#0F172A", // Keep user's preferred background
-      paper: "#1F2937", // Warmer dark paper
+      default: "#1A0E0E", // Dark red-tinted background
+      paper: "#2D1B1B", // Dark red-tinted paper
     },
     text: {
-      primary: "#FEF3C7", // Warm cream text
-      secondary: "#D97706", // Warm amber secondary text
+      primary: "#FFF5F5", // Very light pinkish white
+      secondary: "#FECACA", // Light red tint
     },
-    divider: "#92400E", // Warm brown divider
+    divider: "#7A2E2E", // Dark red divider
     action: {
-      hover: "rgba(251, 146, 60, 0.08)", // Warm orange hover
-      selected: "rgba(251, 146, 60, 0.12)",
-      disabled: "rgba(217, 119, 6, 0.3)",
-      disabledBackground: "rgba(217, 119, 6, 0.12)",
+      hover: "rgba(201, 59, 53, 0.08)", // Rich red hover
+      selected: "rgba(201, 59, 53, 0.12)",
+      disabled: "rgba(168, 42, 36, 0.3)",
+      disabledBackground: "rgba(168, 42, 36, 0.12)",
     },
     success: {
       main: "#22C55E", // Keep green pleasant
@@ -232,8 +232,9 @@ if (darkTheme.components?.MuiAppBar?.styleOverrides) {
   darkTheme.components.MuiAppBar.styleOverrides.root = {
     ...(typeof existingRoot === 'object' ? existingRoot : {}),
     backdropFilter: "blur(8px)",
-    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    backgroundColor: "rgba(26, 14, 14, 0.8)",
   };
 }
 
-export { lightTheme, darkTheme };
+export { darkTheme, lightTheme };
+

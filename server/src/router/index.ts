@@ -4,12 +4,6 @@ import { chatRouter } from "./chatRouter";
 import { messageRouter } from "./messageRouter";
 import { modelRouter } from "./modelRouter";
 import { settingsRouter } from "./settingsRouter";
-import { streamRouter } from "./streamRouter";
-// import { streamRouterBullMQ } from "./streamRouter.bullmq";
-import { streamRouterEventSourced } from "./streamRouter.event-sourced";
-import { messageStreamRouter } from "./streamRouter.message";
-import { nativeStreamRouter } from "./streamRouter.native";
-// import { simpleStreamRouter } from "./streamRouter.simple";
 import { trackerRouter } from "./trackerRouter";
 
 export const appRouter = router({
@@ -18,12 +12,6 @@ export const appRouter = router({
   message: messageRouter,
   model: modelRouter,
   settings: settingsRouter,
-  stream: streamRouter,
-  streamEventSourced: streamRouterEventSourced,
-  // streamBullMQ: streamRouterBullMQ,
-  // simple: simpleStreamRouter,
-  native: nativeStreamRouter,
-  messageStream: messageStreamRouter,
   // hello: withOwnerProcedure
   //   .input(z.object({ name: z.string().optional() }))
   //   .query(async ({ input, ctx }) => {

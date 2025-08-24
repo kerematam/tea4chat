@@ -1,20 +1,23 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 /**
- * Custom hook to handle value changes without using useEffect. Inspired by the
- * 'You Might Not Need an Effect' article from the React documentation.
- *
- * URL:
- * https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
- *
+ * Custom hook to handle value changes with latest ref pattern.
  */
 const useValueChange = <T>(value: T, callback: (value: T, prev: T) => void) => {
-    const [prev, setPrev] = useState<T>(value);
-    
-    if (prev !== value) {
-        callback(value, prev);
-        setPrev(value);
+  const prevRef = useRef<T>(value);
+  const callbackRef = useRef<((value: T, prev: T) => void) | null>(callback);
+
+  useLayoutEffect(() => {
+    callbackRef.current = callback;
+  });
+
+  useLayoutEffect(() => {
+    if (prevRef.current !== value) {
+      const previous = prevRef.current;
+      prevRef.current = value;
+      callbackRef.current?.(value, previous);
     }
+  }, [value]);
 };
 
 export default useValueChange;

@@ -1,9 +1,10 @@
+import useValueChange from "@/hooks/useValueChange";
+import { trpc } from "@/services/trpc";
 import { useCallback, useMemo } from "react";
-import { trpc } from "../services/trpc";
+import { useStreamingStore } from "./streamingStore";
 import { useChatStreaming } from "./useChatStreaming";
-import usePrevMessages from "./usePrevMessages";
 import { useRefreshLatestOnFocus } from "./useRefreshLatestOnFocus";
-import useValueChange from "./useValueChange";
+import useSyncMessages from "./useSyncMessages";
 
 /**
  * useChatMessages - A comprehensive hook for managing chat messages with real-time streaming
@@ -36,137 +37,141 @@ import useValueChange from "./useValueChange";
  * that provides real-time streaming with reliable message persistence and pagination.
  */
 
-// MessageType for client-side (createdAt is serialized as string)
-export type MessageType = {
-  id: string;
-  createdAt: string;
-  chatId: string;
-  content: string;
-  from: string;
-  text: string;
-};
+// Import MessageType directly from server (superjson preserves Date types)
+import type { MessageType } from "../../../../server/src/router/messageRouter";
+
+// Re-export MessageType for components that use this hook
+export type { MessageType };
 
 export type StreamChunk =
-  | { type: "userMessage"; message: MessageType; chatId: string }
-  | { type: "aiMessageStart"; message: MessageType; chatId: string }
+  | { type: "messageStart"; message: MessageType; chatId: string }
   | {
-    type: "aiMessageChunk";
-    messageId: string;
-    chunk: string;
-    chatId: string;
-  }
-  | { type: "aiMessageComplete"; message: MessageType; chatId: string };
+      type: "agentChunk";
+      messageId: string;
+      chunk: string;
+      chatId: string;
+    }
+  | { type: "messageComplete"; message: MessageType; chatId: string };
 
 interface UseChatMessagesProps {
   chatId?: string; // Made optional to support chat creation
   onChatCreated?: ({ chatId }: { chatId: string }) => void;
   chunkHandlers?: {
-    userMessage?: (message: MessageType) => void;
-    aiMessageStart?: (message: MessageType) => void;
-    aiMessageChunk?: (
+    messageStart?: (message: MessageType) => void;
+    agentChunk?: (
       messageId: string,
-      fullContent: string,
+      fullAgentContent: string,
       chatId: string
     ) => void;
-    aiMessageComplete?: (message: MessageType) => void;
+    messageComplete?: (message: MessageType) => void;
   };
 }
 
-// TODO: streaming only works on 4
 const QUERY_LIMIT = 10;
 
 export const useChatMessages = ({
   chatId,
   onChatCreated,
-  chunkHandlers,
 }: UseChatMessagesProps) => {
   const utils = trpc.useUtils();
 
   // Infinite query for messages (only enabled when chatId exists)
+  // console.log("2 chatId", chatId);
   const messagesQuery = trpc.message.getMessages.useInfiniteQuery(
     {
       chatId: chatId!, // Assert non-null since query is disabled when chatId is undefined
       limit: QUERY_LIMIT,
     },
     {
-      initialCursor: new Date().toISOString(),
+      initialCursor: new Date(),
       enabled: !!chatId, // Only run query when chatId exists
       refetchOnWindowFocus: false, // Don't refetch on window focus
       refetchOnMount: false, // Don't refetch when component mounts
       refetchOnReconnect: true, // Keep this for network issues
       staleTime: 1000 * 60 * 60 * 24 * 7, // 7 days - consider data fresh for longer
-      // older messages
+      // older messages.
       getNextPageParam: (lastPage) => {
+        // If oldest page, has returned less than QUERY_LIMIT messages then we
+        // don't need to fetch more messages
         if (!lastPage || lastPage.messages.length < QUERY_LIMIT) {
           return undefined;
         }
-        return lastPage.messages[0].createdAt;
+        return lastPage.messages[0].finishedAt;
       },
-      // newer messages
+      // newer messages.
       getPreviousPageParam: (firstPage) => {
-        return firstPage.messages.at(-1)?.createdAt || firstPage.syncDate;
+        // We will keep fetching newer always active, so getPreviousPageParam
+        // should always return a value
+        return firstPage.messages.at(-1)?.finishedAt || firstPage.syncDate;
       },
     }
+  );
+
+  // Sync messages hook
+  const { prevMessages, streamingMessage, handleStreamChunk } = useSyncMessages(
+    messagesQuery.data?.pages || [],
+    chatId || ""
   );
 
   // Streaming hook
   const streaming = useChatStreaming({
     chatId,
     onChatCreated,
-    chunkHandlers,
+    onStreamChunk: handleStreamChunk,
     utils,
-    onStreamEnd: () => messagesQuery.fetchPreviousPage(),
   });
 
   // Manual sync function to trigger Redis stream listening
   const manualSync = useCallback(() => {
     if (!chatId) return;
+    
+    streaming.listenToStream();
+  }, [chatId, streaming]);
 
-    // Get syncDate from the first page to avoid processing already cached messages
-    const firstPage = messagesQuery.data?.pages?.[0];
-    const fromTimestamp = firstPage?.syncDate;
-
-    streaming.listenToStream(fromTimestamp);
-  }, [chatId, streaming, messagesQuery.data?.pages]);
-
+  // this clears the streaming messages when new messages comes from infinite query
+  const { actions } = useStreamingStore();
   useValueChange(
     messagesQuery.data?.pages?.[0]?.streamingMessage?.id,
-    (value) => {
-      if (value) manualSync();
+    (streamingMessageId) => {
+      if (streamingMessageId) {
+        // there is a streaming message, so we need to sync
+        manualSync();
+      } else if (chatId) {
+        // no streaming message, so we need to clear the streaming message
+        actions.clearStreamingMessage(chatId);
+      }
     }
   );
 
-  // Check if there are more newer messages to load (previous page in backward direction)
+  // NOTE: hasPreviousPage is only used, when there is new pages to fetch on
+  // page load and we don't rely on `messagesQuery.hasPreviousPage` here. We
+  // always return a cursor from `getPreviousPageParam` to keep the "load newer"
+  // behavior available for manual refresh. That makes React Query think there
+  // is always a previous page, which is not a real indicator of newer data.
+  // Instead, derive the actual "has newer" state by inspecting the first page:
+  // - it must be fetched in the "backward" (newer) direction, and
+  // - it must be a full page (length === QUERY_LIMIT). This tells us there may
+  //   be more newer messages to load. Check if there are more newer messages to
+  //   load (previous page in backward direction)
   const hasPreviousPage = useMemo(() => {
     if (!messagesQuery.data?.pages?.length) return false;
 
     const firstPage = messagesQuery.data.pages[0];
-    const hasMoreMessagesToLoad = firstPage?.messages?.length === QUERY_LIMIT;
-    const isNewerMessages = firstPage?.direction === "backward";
+    if (firstPage.direction !== "backward") return false;
 
-    return hasMoreMessagesToLoad && isNewerMessages;
+    return firstPage.messages.length === QUERY_LIMIT;
   }, [messagesQuery.data?.pages]);
 
   // Use custom hook for window focus refresh instead of manual implementation
   useRefreshLatestOnFocus(messagesQuery, {
-    enabled: !!chatId, // Only active when we have a chatId
+    enabled: !!chatId, // && !streaming.isActive, TODO: check if it breaks to trigger this during streaming
     skipInitialLoad: true, // Skip refresh on initial load
   });
-
-  const prevMessages = usePrevMessages(
-    streaming,
-    messagesQuery.data?.pages || []
-  );
-
-  // Get streaming messages as array
-  const streamingMessages = useMemo(() => {
-    return Array.from(streaming.streamingMessages.values());
-  }, [streaming.streamingMessages]);
 
   return {
     // Messages data
     messages: prevMessages, // Cached/previous messages
-    streamingMessages, // Current streaming messages
+    streamingMessage, // Current streaming messages
 
     // Query states
     isLoading: messagesQuery.isLoading,
@@ -174,7 +179,7 @@ export const useChatMessages = ({
     error: messagesQuery.error,
 
     // Streaming states
-    isStreamingActive: streaming.isStreamingActive,
+    isStreamingActive: streaming.isActive,
     isListeningToStream: streaming.isListeningToStream,
 
     // Pagination

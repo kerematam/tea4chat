@@ -2,19 +2,14 @@
  * Type definitions for Redis Message Streaming
  */
 
-// MessageType from messageRouter.ts
-export interface MessageType {
-  id: string;
-  createdAt: Date;
-  chatId: string;
-  content: string;
-  from: string;
-  text: string;
-}
+import type { PublicMessage } from "../../router/message.public";
 
-// StreamMessage type similar to messageRouter.ts
+// MessageType from messageRouter.ts
+export type MessageType = PublicMessage;
+
+// StreamMessage type for combined message streaming
 export type StreamMessage = {
-  type: "userMessage" | "aiMessageStart" | "aiMessageChunk" | "aiMessageComplete";
+  type: "messageStart" | "agentChunk" | "messageComplete";
   message?: MessageType;
   messageId?: string;
   chunk?: string;

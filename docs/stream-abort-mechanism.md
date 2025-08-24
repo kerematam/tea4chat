@@ -316,9 +316,7 @@ export const CUSTOM_STREAM_MESSAGES = {
 
 ## 🔗 Related Documentation
 
-- **[Event Sourcing Streams](./event-sourcing-streams.md)** - Advanced streaming patterns
-- **[Stream Controller](./stream-controller.md)** - High-level streaming interface  
-- **[Router Documentation](../server/src/router/README.md)** - tRPC router setup
+- **[Streaming Architecture](./STREAMING-ARCHITECTURE.md)** - Complete streaming system overview
 
 ## 📈 Performance Considerations
 

@@ -4,27 +4,26 @@ import { Box, Container, Fab, Paper, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { useLocation } from "react-router-dom";
 import { ChatTextForm } from "../../components/ChatTextForm/ChatTextForm";
 import AgentMessage from "./components/AgentMessage/AgentMessage";
 import ModelSelector from "./components/ModelSelector/ModelSelector";
 
-import { MessageType, useChatMessages } from "../../hooks/useChatMessages";
+import {
+  MessageType,
+  useChatMessages,
+} from "../../hooks/useChatMessages/useChatMessages";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
-import Landing from "./components/Landing/Landing";
 
 const Chat = () => {
-  const location = useLocation();
   const { id: chatId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Use our custom hook for all chat functionality
   const {
     messages: previousMessages,
-    streamingMessages,
+    streamingMessage,
     isLoading,
     error,
     fetchNextPage,
@@ -34,7 +33,6 @@ const Chat = () => {
     isFetchingNextPage,
     isFetchingPreviousPage,
     sendMessage,
-    isSending,
     abortStream,
     isStreamingActive,
     isListeningToStream,
@@ -42,13 +40,15 @@ const Chat = () => {
   } = useChatMessages({
     chatId,
     onChatCreated: ({ chatId }: { chatId: string }) => {
-      navigate(`/chat/${chatId}`, { replace: true });
+      navigate(`/chat/${chatId}`);
     },
   });
 
   // Infinite scroll for loading older messages
   const { triggerRef: loadMoreRef } = useInfiniteScroll({
-    fetchMore: fetchNextPage,
+    fetchMore: () => {
+      fetchNextPage();
+    },
     hasMore: hasNextPage,
     isFetching: isFetchingNextPage,
   });
@@ -59,9 +59,6 @@ const Chat = () => {
     hasMore: hasPreviousPage,
     isFetching: isFetchingPreviousPage,
   });
-
-  // Handle messages and streaming messages separately
-  // const [previousMessages, newMessages] = useMessagesGrouping(messages);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -82,11 +79,10 @@ const Chat = () => {
     return () => container?.removeEventListener("scroll", handleScroll);
   }, []);
 
-  if (location.pathname === "/") {
-    return <Landing onSendMessage={sendMessage} isSending={isSending} />;
-  }
+  const [newChatModelId, setNewChatModelId] = useState<string | undefined>(
+    undefined
+  );
 
-  // Show new chat interface when no chatId
   if (!chatId) {
     return (
       <Box
@@ -139,10 +135,14 @@ const Chat = () => {
             placeholder="Start a new conversation..."
             chatId={chatId} // Will be undefined for new chat
             sendMessage={sendMessage}
-            isSending={isSending}
+            isSending={isStreamingActive}
             abortStream={abortStream}
+            overrideModelId={newChatModelId}
           />
-          {/* ModelSelector only shown after chat is created */}
+          {/* ModelSelector available for new chat; local selection passed to first message */}
+          <ModelSelector
+            onLocalSelectionChange={(m) => setNewChatModelId(m?.id)}
+          />
         </Box>
       </Box>
     );
@@ -163,36 +163,69 @@ const Chat = () => {
 
   const renderMessages = (messagesToRender: MessageType[]) => {
     return messagesToRender.map((message) => (
-      <Box key={message.id}>
+      <Box key={message.id} data-testid="message-pair">
+        {/* User Message */}
         <Box
+          data-testid="message"
+          data-role="user"
+          data-message-id={message.id}
           sx={{
             display: "flex",
-            justifyContent: message.from === "user" ? "flex-end" : "flex-start",
+            justifyContent: "flex-end",
             mb: 2,
           }}
         >
-          {message.from === "user" ? (
-            <Box
-              sx={{
-                height: "100%",
-                maxWidth: "70%",
-                p: 2,
-                borderRadius: 2,
-                bgcolor: "background.paper",
-                border: (theme) =>
-                  theme.palette.mode === "light" ? "2px solid" : "none",
-                borderColor: (theme) =>
-                  theme.palette.mode === "light" ? "divider" : "transparent",
-              }}
-            >
-              {message.content}
-            </Box>
-          ) : (
+          <Box
+            sx={{
+              height: "100%",
+              maxWidth: "70%",
+              p: 2,
+              borderRadius: 2,
+              bgcolor: "background.paper",
+              border: (theme) =>
+                theme.palette.mode === "light" ? "2px solid" : "none",
+              borderColor: (theme) =>
+                theme.palette.mode === "light" ? "divider" : "transparent",
+            }}
+          >
+            {message.userContent}
+          </Box>
+        </Box>
+
+        {/* Agent Message (only if response exists) */}
+        {message.agentContent && (
+          <Box
+            data-testid="message"
+            data-role="assistant"
+            data-message-id={message.id}
+            sx={{
+              display: "flex",
+              justifyContent: "flex-start",
+              mb: 2,
+            }}
+          >
             <Box sx={{ width: "100%" }}>
               <AgentMessage message={message} />
             </Box>
-          )}
-        </Box>
+          </Box>
+        )}
+
+        {/* Streaming indicator for incomplete messages */}
+        {!message.agentContent && message.status === "STREAMING" && (
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "flex-start",
+              mb: 2,
+            }}
+          >
+            <Box
+              sx={{ width: "100%", p: 2, fontStyle: "italic", opacity: 0.7 }}
+            >
+              AI is thinking...
+            </Box>
+          </Box>
+        )}
       </Box>
     ));
   };
@@ -258,7 +291,7 @@ const Chat = () => {
             // backgroundColor: "red",
           }}
         >
-          {renderMessages(streamingMessages)}
+          {streamingMessage && renderMessages([streamingMessage])}
         </Box>
 
         {/* Previous messages section */}
@@ -355,7 +388,7 @@ const Chat = () => {
           placeholder="Type your message here..."
           chatId={chatId}
           sendMessage={sendMessage}
-          isSending={isSending || isListeningToStream}
+          isSending={isStreamingActive}
           abortStream={abortStream}
         />
         {chatId && <ModelSelector chatId={chatId} />}

@@ -1,16 +1,20 @@
+import { useNotify } from "@/providers/NotificationProdiver/useNotify";
+import { trpc } from "@/services/trpc";
+import DismissIcon from "@mui/icons-material/Close";
+import SyncIcon from "@mui/icons-material/Sync";
 import {
-  Box,
-  Typography,
-  Button,
-  Skeleton,
-  Chip,
   Alert,
+  Box,
+  Button,
+  Chip,
+  Skeleton,
+  Typography,
 } from "@mui/material";
 import { useState } from "react";
-import { trpc } from "@/services/trpc";
-import { useNotify } from "@/providers/NotificationProdiver/useNotify";
-import SyncIcon from "@mui/icons-material/Sync";
-import DismissIcon from "@mui/icons-material/Close";
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
+
+dayjs.extend(relativeTime);
 
 const AnonymousSessionSync = () => {
   const [isDismissed, setIsDismissed] = useState(false);
@@ -89,24 +93,9 @@ const AnonymousSessionSync = () => {
     return null;
   }
 
-  // Helper function to format relative time
   const getRelativeTime = (dateString: string | null) => {
     if (!dateString) return 'Unknown';
-    
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMinutes / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    
-    if (diffMinutes < 60) {
-      return `${diffMinutes} minutes ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hours ago`;
-    } else {
-      return `${diffDays} days ago`;
-    }
+    return dayjs(dateString).fromNow();
   };
 
   return (

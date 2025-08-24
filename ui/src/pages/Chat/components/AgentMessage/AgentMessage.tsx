@@ -1,11 +1,7 @@
+import type { MessageType } from "@/hooks/useChatMessages/useChatMessages";
 import { Box } from "@mui/material";
-// import { ChatMessage } from "../../Chat";
-// import { SqlView } from "../SqlView/SqlView";
-// import { TableView } from "../TableView/TableView";
-// import { ApiView } from "../ApiView/ApiView";
-import { MarkdownHighlighter } from "../../../../components/MarkdownHighlighter/MarkdownHighlighter";
 import { useMemo } from "react";
-import { MessageType } from "../../Chat";
+import { MarkdownHighlighter } from "../../../../components/MarkdownHighlighter/MarkdownHighlighter";
 
 interface AgentMessageProps {
   message: MessageType;
@@ -60,8 +56,8 @@ const getParsedContent = (data: string) => {
 
 export const AgentMessage = ({ message }: AgentMessageProps) => {
   const streamedMarkdown = useMemo(() => {
-    return getParsedContent(message.content);
-  }, [message.content]);
+    return getParsedContent(message.agentContent || "");
+  }, [message.agentContent]);
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>

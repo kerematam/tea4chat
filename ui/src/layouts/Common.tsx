@@ -1,7 +1,7 @@
-import React, { useState } from "react";
-import { AppBar, Toolbar, IconButton, Container, Box } from "@mui/material";
-import { Outlet } from "react-router-dom";
 import ViewSidebarIcon from "@mui/icons-material/ViewSidebar";
+import { AppBar, Box, Container, IconButton, Toolbar } from "@mui/material";
+import React, { useState } from "react";
+import { Outlet } from "react-router-dom";
 import ChatHistoryDrawer from "./components/ChatHistoryDrawer/ChatHistoryDrawer";
 import Footer from "./components/Footer/Footer";
 
@@ -12,8 +12,8 @@ const CommonLayout = () => {
     (open: boolean) => (event: React.KeyboardEvent | React.MouseEvent) => {
       if (
         event.type === "keydown" &&
-        ((event as React.KeyboardEvent).key === "Tab" ||
-          (event as React.KeyboardEvent).key === "Shift")
+        "key" in event &&
+        ["Tab", "Shift"].includes(event.key)
       ) {
         return;
       }
@@ -34,8 +34,9 @@ const CommonLayout = () => {
         enableColorOnDark
         elevation={0}
         sx={{
-          backgroundColor: "transparent",
+          backgroundColor: (theme) => theme.palette.background.default,
           border: "transparent",
+          boxShadow: "none",
         }}
       >
         <Toolbar sx={{ justifyContent: "flex-end" }}>

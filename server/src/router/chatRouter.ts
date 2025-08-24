@@ -307,9 +307,9 @@ export const chatRouter = router({
           messageCount: chat.messages.length,
           messages: chat.messages.map(message => ({
             id: message.id,
-            content: message.content,
-            from: message.from,
-            text: message.text,
+            userContent: message.userContent,
+            agentContent: message.agentContent,
+            status: message.status,
             model: message.model,
             createdAt: message.createdAt.toISOString(),
           })),
@@ -408,7 +408,6 @@ export const chatRouter = router({
               return {
                 content: messageData.content || "",
                 from: messageData.from || "user",
-                text: messageData.text || null,
                 chatId: createdChat.id,
                 createdAt: messageCreatedAt,
                 // Note: We're not importing modelId to avoid reference issues
@@ -554,9 +553,9 @@ export const chatRouter = router({
           messageCount: chat._count.messages,
           messages: chat.messages.map(message => ({
             id: message.id,
-            content: message.content,
-            from: message.from,
-            text: message.text,
+            userContent: message.userContent,
+            agentContent: message.agentContent,
+            status: message.status,
             model: message.model,
             createdAt: message.createdAt.toISOString(),
           })),

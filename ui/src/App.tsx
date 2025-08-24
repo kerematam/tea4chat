@@ -8,21 +8,17 @@ import { lazy, Suspense } from "react";
 import { Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import AdminRoute from "./components/AdminRoute";
 import CommonLayout from "./layouts/Common";
-import { StreamTest } from "./pages/StreamTest/StreamTest";
-import { StreamTestBullMQ } from "./pages/StreamTest/StreamTestBullMQ";
-import { StreamTestEventSourced } from "./pages/StreamTest/StreamTestEventSourced";
-import StreamTestMessage from "./pages/StreamTest/StreamTestMessage";
-import StreamTestNative from "./pages/StreamTest/StreamTestNative";
-import StreamTestSimple from "./pages/StreamTest/StreamTestSimple";
 import { NotificationProvider } from "./providers/NotificationProdiver/NotificationProvider";
 import { TrpcProvider } from "./providers/TrpcProvider";
 import { persistOptions, queryClient } from "./services/queryClient";
 import ThemeProvider from "./theme/ThemeProvider";
+import "./logger";
 
+const HomePage = lazy(() => import("./pages/Home/HomePage"));
 const Chat = lazy(() => import("./pages/Chat/Chat"));
-const ChatList = lazy(() => import("./pages/ChatList/ChatList"));
 const Settings = lazy(() => import("./pages/Settings/Settings"));
 const AdminDashboard = lazy(() => import("./pages/Admin/AdminDashboard"));
+const ResumableStream = lazy(() => import("./pages/Docs/ResumableStream"));
 const Forbidden = lazy(() => import("./pages/Error/Forbidden"));
 const NotFound = lazy(() => import("./pages/Error/NotFound"));
 
@@ -52,11 +48,12 @@ function App() {
             <Router>
               <Suspense fallback={<LoadingFallback />}>
                 <Routes>
-                  <Route path="/" element={<CommonLayout />}>
-                    <Route index element={<Chat />} />
-                    <Route path="chat/:id?" element={<Chat />} />
-                    <Route path="chat-list" element={<ChatList />} />
+                  <Route element={<CommonLayout />}>
+                    <Route path="/" element={<HomePage />} />
+                    <Route path="chat" element={<Chat />} />
+                    <Route path="chat/:id" element={<Chat />} />
                     <Route path="settings" element={<Settings />} />
+                    <Route path="docs/resumable-stream" element={<ResumableStream />} />
 
                     {/* Admin Routes */}
                     <Route
@@ -68,31 +65,6 @@ function App() {
                       }
                     />
                   </Route>
-                  {import.meta.env.MODE === "development" && (
-                    <>
-                      <Route path="stream-test" element={<StreamTest />} />
-                      <Route
-                        path="stream-test-event-sourced"
-                        element={<StreamTestEventSourced />}
-                      />
-                      <Route
-                        path="stream-test-bullmq"
-                        element={<StreamTestBullMQ />}
-                      />
-                      <Route
-                        path="stream-test-simple"
-                        element={<StreamTestSimple />}
-                      />
-                      <Route
-                        path="stream-test-native"
-                        element={<StreamTestNative />}
-                      />
-                      <Route
-                        path="stream-test-message"
-                        element={<StreamTestMessage />}
-                      />
-                    </>
-                  )}
 
                   <Route path="403" element={<Forbidden />} />
                   <Route path="*" element={<NotFound />} />

@@ -1,25 +1,25 @@
 import { trpc } from "@/services/trpc";
-import {
-  Button,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
-  Typography,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  TextField,
-  Box,
-  CircularProgress,
-} from "@mui/material";
+import CancelIcon from "@mui/icons-material/Cancel";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
-import CancelIcon from "@mui/icons-material/Cancel";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Divider,
+  IconButton,
+  List,
+  ListItem,
+  ListItemText,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { useState } from "react";
 
 export default function ChatList() {
@@ -45,14 +45,13 @@ export default function ChatList() {
     },
   });
 
-  const { mutate: deleteAllChats, isPending: isDeletingAll } = trpc.chat.deleteAll.useMutation({
-    onSuccess: (result) => {
-      utils.chat.getAll.invalidate();
-      setDeleteAllDialogOpen(false);
-      // Optional: Show success message with count
-      console.log(`Successfully deleted ${result.deletedCount} chats`);
-    },
-  });
+  const { mutate: deleteAllChats, isPending: isDeletingAll } =
+    trpc.chat.deleteAll.useMutation({
+      onSuccess: () => {
+        utils.chat.getAll.invalidate();
+        setDeleteAllDialogOpen(false);
+      },
+    });
 
   const { mutate: updateChat } = trpc.chat.update.useMutation({
     onSuccess: () => {
@@ -174,7 +173,10 @@ export default function ChatList() {
         </Button>
       </Box>
 
-      <Typography variant="h6" sx={{ color: "text.primary", textAlign: "center" }}>
+      <Typography
+        variant="h6"
+        sx={{ color: "text.primary", textAlign: "center" }}
+      >
         {totalCount} chats
       </Typography>
       <Divider sx={{ mb: 2 }} />
@@ -239,7 +241,7 @@ export default function ChatList() {
                 sx={{ mr: 2 }}
               />
             ) : (
-            <ListItemText primary={chat.title} secondary={chat.description} />
+              <ListItemText primary={chat.title} secondary={chat.description} />
             )}
           </ListItem>
         ))}
@@ -280,10 +282,10 @@ export default function ChatList() {
           <Button onClick={handleDeleteCancel} color="primary">
             Cancel
           </Button>
-      <Button
+          <Button
             onClick={handleDeleteConfirm}
             color="error"
-        variant="contained"
+            variant="contained"
           >
             Delete
           </Button>
@@ -300,8 +302,8 @@ export default function ChatList() {
         <DialogTitle id="delete-all-dialog-title">Delete All Chats</DialogTitle>
         <DialogContent>
           <DialogContentText id="delete-all-dialog-description">
-            Are you sure you want to delete ALL {totalCount} chats? This action cannot be
-            undone and will permanently remove all your chat history.
+            Are you sure you want to delete ALL {totalCount} chats? This action
+            cannot be undone and will permanently remove all your chat history.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -315,7 +317,7 @@ export default function ChatList() {
             disabled={isDeletingAll}
           >
             {isDeletingAll ? "Deleting..." : `Delete All ${totalCount} Chats`}
-      </Button>
+          </Button>
         </DialogActions>
       </Dialog>
     </>

@@ -1,6 +1,7 @@
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { Query, QueryClient } from "@tanstack/react-query";
 import localforage from "localforage";
+import superjson from "superjson";
 
 // Configure localforage for IndexedDB
 localforage.config({
@@ -14,9 +15,9 @@ localforage.config({
 // Create persister with selective hydration/dehydration
 export const persister = createAsyncStoragePersister({
   storage: localforage,
-  // Only persist message queries
-  // serialize: (data) => JSON.stringify(data),
-  // deserialize: (data) => JSON.parse(data),
+  // Use superjson to preserve Date and other complex types
+  serialize: (data) => superjson.stringify(data),
+  deserialize: (str) => superjson.parse(str),
 });
 
 export const queryClient = new QueryClient({

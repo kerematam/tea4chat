@@ -1,21 +1,19 @@
-import {
-  Box,
-  Typography,
-  Card,
-  CardContent,
-  Button,
-  Alert,
-  LinearProgress,
-  TextField,
-  Divider,
-} from "@mui/material";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
-import ImportExportIcon from "@mui/icons-material/ImportExport";
-import CodeIcon from "@mui/icons-material/Code";
-import { useState, useRef } from "react";
 import { useNotify } from "@/providers/NotificationProdiver/useNotify";
 import { trpc } from "@/services/trpc";
+import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import ImportExportIcon from "@mui/icons-material/ImportExport";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Divider,
+  LinearProgress,
+  Typography
+} from "@mui/material";
+import { useRef, useState } from "react";
 
 const ChatDataCard = () => {
   const [importing, setImporting] = useState(false);
@@ -116,7 +114,6 @@ const ChatDataCard = () => {
       setTimeout(() => setImportSuccess(false), 3000);
       
       // Log detailed results for debugging
-      console.log('Import Results:', data.results);
       if (data.results.errors.length > 0) {
         console.warn('Import Errors:', data.results.errors);
       }

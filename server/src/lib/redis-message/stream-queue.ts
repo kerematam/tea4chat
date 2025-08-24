@@ -4,6 +4,7 @@
  * Provides batching and Redis stream operations abstraction
  */
 
+import superjson from 'superjson';
 import { redisWriter } from './clients';
 import type { BatchedQueue, BatchedQueueOptions, StreamMessage, StreamQueue, StreamQueueOptions } from './types';
 
@@ -96,14 +97,13 @@ export function createStreamQueue(chatId: string, options: StreamQueueOptions = 
     async (events: StreamMessage[]) => {
       // Redis pipeline operation for batching XADD commands
       const pipeline = redisWriter.pipeline();
-
       events.forEach(event => {
         pipeline.xadd(
           streamKey,
           // TODO: we should save data to db before trimming from stream
           // 'MAXLEN', '~', '10000', // Keep approximately N most recent messages
           '*', // Let Redis generate the ID automatically
-          'event', JSON.stringify(event)
+          'event', superjson.stringify(event)
         );
       });
 

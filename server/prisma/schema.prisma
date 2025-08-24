@@ -1,38 +1,29 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
 generator client {
   provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-arm64-openssl-1.1.x", "darwin-arm64"]
 }
 
-enum MessageStatus {
-  STARTED // just before streaming starts
-  STREAMING // streaming is in progress
-  COMPLETED // streaming is complete
-  FAILED
-  ABORTED
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
-  picture       String? // Google profile picture URL
-  googleId      String?   @unique // Google's unique identifier
+  picture       String?
+  googleId      String?   @unique
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastLoginAt   DateTime  @default(now())
-  trackers      Tracker[]
-  owner         Owner? // One-to-one relation with Owner
   emailVerified Boolean
   image         String?
-  sessions      Session[]
+  owner         Owner?
+  trackers      Tracker[]
   accounts      Account[]
-
-  passkeys Passkey[]
+  passkeys      Passkey[]
+  sessions      Session[]
 
   @@map("user")
 }
@@ -43,8 +34,8 @@ model AnonUser {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   lastSeenAt DateTime  @default(now())
+  owner      Owner?
   trackers   Tracker[]
-  owner      Owner? // One-to-one relation with Owner
 }
 
 model Tracker {
@@ -52,15 +43,13 @@ model Tracker {
   sessionId  String
   ipAddress  String
   userAgent  String
-  firstSeen  DateTime  @default(now()) // renamed from lastEnter for clarity
+  firstSeen  DateTime  @default(now())
   lastSeen   DateTime  @updatedAt
-  userId     String? // optional link to User
-  anonUserId String? // optional link to AnonUser
-  user       User?     @relation(fields: [userId], references: [id])
+  userId     String?
+  anonUserId String?
   anonUser   AnonUser? @relation(fields: [anonUserId], references: [id])
+  user       User?     @relation(fields: [userId], references: [id])
 
-  // @@unique([userId, ipAddress, userAgent], name: "userId_ipAddress_userAgent")
-  // @@unique([anonUserId, ipAddress, userAgent], name: "anonUserId_ipAddress_userAgent")
   @@unique([sessionId, ipAddress, userAgent], name: "sessionId_ipAddress_userAgent")
   @@index([userId])
   @@index([anonUserId])
@@ -68,60 +57,80 @@ model Tracker {
 }
 
 model Owner {
-  id         String    @id @default(cuid())
-  user       User?     @relation(fields: [userId], references: [id])
-  userId     String?   @unique // Makes it one-to-one
-  anonUser   AnonUser? @relation(fields: [anonUserId], references: [id])
-  anonUserId String?   @unique // Makes it one-to-one
-  chats      Chat[] // One-to-many relation with Chat
+  id         String         @id @default(cuid())
+  userId     String?        @unique
+  anonUserId String?        @unique
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  isAdmin    Boolean        @default(false)
+  chats      Chat[]
+  models     ModelCatalog[]
+  anonUser   AnonUser?      @relation(fields: [anonUserId], references: [id])
+  user       User?          @relation(fields: [userId], references: [id])
   settings   OwnerSettings?
-  models     ModelCatalog[]   // custom models owned by this user
-  isAdmin    Boolean  @default(false)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
 }
 
 model Chat {
-  id          String    @id @default(cuid())
+  id          String        @id @default(cuid())
   title       String
   description String
-  createdAt   DateTime  @default(now())
-  isDeleted   Boolean   @default(false)
-  messages    Message[]
-  owner       Owner     @relation(fields: [ownerId], references: [id]) // Relation to Owner instead of User
+  createdAt   DateTime      @default(now())
+  isDeleted   Boolean       @default(false)
   ownerId     String
-
-  // model used for this chat (can override owner's default)
-  modelId    String?
-  model      ModelCatalog? @relation(fields: [modelId], references: [id])
+  modelId     String?
+  model       ModelCatalog? @relation(fields: [modelId], references: [id])
+  owner       Owner         @relation(fields: [ownerId], references: [id])
+  messages    Message[]
 
   @@index([ownerId])
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  content   String
-  from      String
-  text      String?
-
-  // model that produced / will consume this message
-  modelId   String?
-  model     ModelCatalog? @relation(fields: [modelId], references: [id])
-
-  // status
-  status    MessageStatus   @default(COMPLETED)
-
-  chat      Chat     @relation(fields: [chatId], references: [id])
-  chatId    String
-  createdAt DateTime @default(now())
+  id          String        @id @default(cuid())
+  
+  // User's question/prompt
+  userContent String
+  
+  // AI's response (nullable during streaming)
+  agentContent String?
+  
+  // Relations/metadata
+  chatId      String
+  modelId     String?
+  status      MessageStatus @default(STARTED)
+  
+  // Timing
+  createdAt   DateTime      @default(now()) // When user's message created (STARTED)
+  finishedAt  DateTime?     // When AI finished responding (COMPLETED/FAILED/ABORTED)
+  
+  // Token usage tracking
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  
+  // Performance metrics  
+  providerLatencyMs Int?    // Total time from provider request to completion
+  firstByteMs      Int?    // Time to first streamed byte
+  
+  // Error handling
+  errorReason      String?
+  
+  // Flexible metadata (tool calls, system prompt hash, temperature, etc.)
+  metadata         Json?
+  
+  // Relations
+  chat        Chat          @relation(fields: [chatId], references: [id])
+  model       ModelCatalog? @relation(fields: [modelId], references: [id])
 
   @@index([chatId])
+  @@index([chatId, createdAt])
+  @@index([status])
 }
 
 model Session {
   id        String   @id
   expiresAt DateTime
-  token     String
+  token     String   @unique
   createdAt DateTime
   updatedAt DateTime
   ipAddress String?
@@ -129,7 +138,6 @@ model Session {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([token])
   @@map("session")
 }
 
@@ -138,7 +146,6 @@ model Account {
   accountId             String
   providerId            String
   userId                String
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   accessToken           String?
   refreshToken          String?
   idToken               String?
@@ -148,6 +155,7 @@ model Account {
   password              String?
   createdAt             DateTime
   updatedAt             DateTime
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("account")
 }
@@ -168,61 +176,58 @@ model Passkey {
   name         String?
   publicKey    String
   userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   credentialID String
   counter      Int
   deviceType   String
   backedUp     Boolean
   transports   String?
   createdAt    DateTime?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("passkey")
 }
 
 /// Catalog of all LLM models supported by the system
 model ModelCatalog {
-  id          String   @id @default(cuid())
-  provider    String              // "openai" | "anthropic" | "custom" …
-  name        String              // "gpt-4o", "my-finetune-001", …
+  id          String          @id @default(cuid())
+  provider    String
+  name        String
   description String?
-  isEnabled   Boolean  @default(true)
+  isEnabled   Boolean         @default(true)
+  /// NEW ↓ –– who owns it & who can see it
+  ownerId     String?
+  isPublic    Boolean         @default(false)
+  endpoint    String?
+  extra       Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  chats       Chat[]
+  messages    Message[]
+  owner       Owner?          @relation(fields: [ownerId], references: [id])
+  ownersDef   OwnerSettings[] @relation("OwnerDefaultModel")
 
-  /* NEW ↓ –– who owns it & who can see it */
-  ownerId     String?             // NULL  → system model
-  owner       Owner?   @relation(fields: [ownerId], references: [id])
-  isPublic    Boolean  @default(false)
-
-  // Optionally hold provider credentials or endpoint for this model
-  endpoint    String?             // e.g. https://api.my-model.com
-  extra       Json?               // e.g. { "apiKeyEnv": "MY_KEY" }
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  /* Back-relations */
-  chats     Chat[]
-  messages  Message[]
-  ownersDef OwnerSettings[] @relation("OwnerDefaultModel")
-
+  @@unique([ownerId, name])
   @@index([ownerId])
-  @@unique([ownerId, name])       // same owner can't register same name twice
 }
 
 /// Per-owner settings (default model, API keys, etc.)
 model OwnerSettings {
-  id              String   @id @default(cuid())
-  owner           Owner    @relation(fields: [ownerId], references: [id])
-  ownerId         String   @unique
-
-  // default model preference
+  id              String        @id @default(cuid())
+  ownerId         String        @unique
   defaultModelId  String?
+  openaiApiKey    String?
+  anthropicApiKey String?
+  extra           Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
   model           ModelCatalog? @relation("OwnerDefaultModel", fields: [defaultModelId], references: [id])
+  owner           Owner         @relation(fields: [ownerId], references: [id])
+}
 
-  // provider keys (encrypted strings)
-  openaiApiKey     String?
-  anthropicApiKey  String?
-  extra            Json?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+enum MessageStatus {
+  STARTED // user message is saved in db
+  STREAMING // agent message started streaming
+  COMPLETED // agent message completed
+  FAILED // agent message failed
+  ABORTED // agent message aborted
 }
