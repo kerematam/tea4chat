@@ -643,24 +643,6 @@ export const messageRouter = router({
     }),
 
   // Get active streams for debugging/monitoring
-  // getActiveStreams: withOwnerProcedure.query(async ({ ctx }) => {
-  //   if (!ctx.owner) {
-  //     throw new Error("Owner not found");
-  //   }
-
-  //   const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
-  //   // Filter streams that belong to this owner
-  //   const ownerStreams = allActiveStreams.filter((streamId) =>
-  //     streamId.endsWith(`:${ctx.owner.id}`)
-  //   );
-
-  //   return {
-  //     activeStreams: ownerStreams.map((streamId) => ({
-  //       streamId,
-  //       chatId: streamId.split(":")[0],
-  //     })),
-  //   };
-  // }),
 
   // Listen to Redis message chunk stream for reconnection/page refresh scenarios
   listenToMessageChunkStream: withOwnerProcedure
