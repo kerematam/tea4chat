@@ -1,7 +1,6 @@
 import {
   MessageStatus,
   PrismaClient,
-  type Message,
   type ModelCatalog,
 } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
@@ -31,6 +30,7 @@ import {
 } from "../lib/stream-abort-registry";
 import { withOwnerProcedure } from "../procedures";
 import { router } from "../trpc";
+import { publicMessageSelect, type PublicMessage } from "./message.public";
 
 export type StreamMessage = {
   type: "messageStart" | "agentChunk" | "messageComplete";
@@ -40,30 +40,9 @@ export type StreamMessage = {
   chatId: string;
 };
 
-// TODO: type inference from prisma is not working, so we need to manually type
-// the message type for tRPC infinite query compatibility
-export type MessageType = {
-  id: string;
-  createdAt: Date;
-  chatId: string;
-
-  // Combined user + agent content
-  userContent: string;
-  agentContent: string | null;
-
-  // Metadata
-  status: MessageStatus;
-  finishedAt: Date | null;
-
-  // Analytics (optional for backwards compatibility)
-  promptTokens?: number | null;
-  completionTokens?: number | null;
-  totalTokens?: number | null;
-  providerLatencyMs?: number | null;
-  firstByteMs?: number | null;
-  errorReason?: string | null;
-  metadata?: any;
-};
+// TODO: use this instead of MessageType
+// import type { Message as MessageType } from "@prisma/client";
+export type MessageType = PublicMessage;
 
 const prisma = new PrismaClient();
 
@@ -95,7 +74,7 @@ const fetchOlderMessages = async (
   chatId: string,
   cursorDate: Date,
   limit: number
-): Promise<Message[]> => {
+): Promise<PublicMessage[]> => {
   const messages = await prisma.message.findMany({
     where: {
       chatId,
@@ -110,6 +89,7 @@ const fetchOlderMessages = async (
     },
     orderBy: { createdAt: "desc" },
     take: limit,
+    select: publicMessageSelect,
   });
 
   return messages.reverse();
@@ -119,7 +99,7 @@ const fetchNewerMessages = async (
   chatId: string,
   cursorDate: Date,
   limit: number
-): Promise<Message[]> => {
+): Promise<PublicMessage[]> => {
   return await prisma.message.findMany({
     where: {
       chatId,
@@ -135,6 +115,7 @@ const fetchNewerMessages = async (
     },
     orderBy: { createdAt: "asc" },
     take: limit,
+    select: publicMessageSelect,
   });
 };
 
@@ -142,11 +123,12 @@ const fetchNewerMessages = async (
 const fetchStreamingMessage = async (
   chatId: string
   // cursorDate: Date //TODO: support this
-): Promise<Message | null> => {
+): Promise<PublicMessage | null> => {
   const latestMessage = await prisma.message.findFirst({
     where: { chatId },
     orderBy: { createdAt: "desc" },
     take: 1,
+    select: publicMessageSelect,
   });
 
   if (
@@ -301,6 +283,7 @@ export const messageRouter = router({
             status: MessageStatus.STARTED,
             ...(input.modelId ? { modelId: input.modelId } : {}),
           },
+          select: publicMessageSelect,
         });
 
         // yield the message start event with user content
@@ -464,6 +447,7 @@ export const messageRouter = router({
                 status: MessageStatus.COMPLETED,
                 finishedAt: new Date(),
               },
+              select: publicMessageSelect,
             });
             // console.log("UPDATED AI MESSAGE", updatedAiMessage);
 
@@ -588,7 +572,7 @@ export const messageRouter = router({
       z.object({
         chatId: z.string(),
         limit: z.number().min(1).max(100).default(50),
-        cursor: z.string(),
+        cursor: z.date(),
         direction: z.enum(["backward", "forward"]).default("backward"),
       })
     )
@@ -613,16 +597,16 @@ export const messageRouter = router({
       const { limit, cursor, direction, chatId } = input;
       const cursorDateTime = new Date(cursor);
 
-      let messages: Message[] = [];
-      let syncDate;
+      let messages: PublicMessage[] = [];
+      let syncDate: Date | null | undefined = null;
       if (direction === "forward") {
         // Fetch older messages (going back in time)
         messages = await fetchOlderMessages(chatId, cursorDateTime, limit);
-        syncDate = messages.at(-1)?.finishedAt?.toISOString();
+        syncDate = messages.at(-1)?.finishedAt;
       } else {
         // Fetch newer messages (going forward in time)
         messages = await fetchNewerMessages(chatId, cursorDateTime, limit);
-        syncDate = messages[0]?.finishedAt?.toISOString();
+        syncDate = messages[0]?.finishedAt;
       }
       syncDate ??= cursor;
 
@@ -659,45 +643,37 @@ export const messageRouter = router({
     }),
 
   // Get active streams for debugging/monitoring
-  getActiveStreams: withOwnerProcedure.query(async ({ ctx }) => {
-    if (!ctx.owner) {
-      throw new Error("Owner not found");
-    }
+  // getActiveStreams: withOwnerProcedure.query(async ({ ctx }) => {
+  //   if (!ctx.owner) {
+  //     throw new Error("Owner not found");
+  //   }
 
-    const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
-    // Filter streams that belong to this owner
-    const ownerStreams = allActiveStreams.filter((streamId) =>
-      streamId.endsWith(`:${ctx.owner.id}`)
-    );
+  //   const allActiveStreams = streamAbortRegistry.getActiveStreamIds();
+  //   // Filter streams that belong to this owner
+  //   const ownerStreams = allActiveStreams.filter((streamId) =>
+  //     streamId.endsWith(`:${ctx.owner.id}`)
+  //   );
 
-    return {
-      activeStreams: ownerStreams.map((streamId) => ({
-        streamId,
-        chatId: streamId.split(":")[0],
-      })),
-    };
-  }),
+  //   return {
+  //     activeStreams: ownerStreams.map((streamId) => ({
+  //       streamId,
+  //       chatId: streamId.split(":")[0],
+  //     })),
+  //   };
+  // }),
 
   // Listen to Redis message chunk stream for reconnection/page refresh scenarios
   listenToMessageChunkStream: withOwnerProcedure
     .input(
       z.object({
         chatId: z.string(),
-        fromTimestamp: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
       console.log(
-        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${
-          input.chatId
-        }${
-          input.fromTimestamp ? ` from timestamp: ${input.fromTimestamp}` : ""
-        }`
+        `🎧 User ${ctx.owner?.id} listening to message chunk stream for chat: ${input.chatId}`
       );
 
-      // Return the async generator from subscribeToMessageChunkStream with optional timestamp
-      return subscribeToMessageChunkStream(input.chatId, {
-        // fromTimestamp: input.fromTimestamp
-      });
+      return subscribeToMessageChunkStream(input.chatId);
     }),
 });

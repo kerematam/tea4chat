@@ -132,7 +132,6 @@ export const useStreamingStore = create<StreamingState>((set, get) => ({
 
       // Type the current data properly using tRPC types
       const infiniteData = currentData as MessagesInfiniteData;
-      console.log("streamingMessage.finishedAt ", streamingMessage.finishedAt);
       // Create a new page with the completed message
       const newPage = {
         messages: [streamingMessage],

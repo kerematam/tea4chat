@@ -85,8 +85,8 @@ export const useChatStreaming = ({
       // Process the stream
       try {
         for await (const chunk of streamGenerator) {
-          console.log("sendMessageMutation success", chunk?.chatId);
           handleStreamingUpdate(chunk);
+
         }
       } catch (err) {
         if (isUserAbortError(err)) return;
@@ -111,7 +111,9 @@ export const useChatStreaming = ({
         // Process the Redis stream
         try {
           for await (const chunk of streamGenerator) {
-            console.log("listenToStreamMutation success", chunk?.chatId);
+            // this loads as string
+            console.log("listenToStreamMutation success", chunk?.message?.finishedAt);
+
             handleStreamingUpdate(chunk as StreamChunk);
           }
         } catch (err) {
@@ -162,14 +164,11 @@ export const useChatStreaming = ({
   }, [chatId, abortStreamMutation]);
 
   // Manual sync function to trigger Redis stream listening
-  const listenToStream = useCallback(
-    () => {
-      if (!chatId || isActive) return;
+  const listenToStream = useCallback(() => {
+    if (!chatId || isActive) return;
 
-      listenToStreamMutation.mutate({ chatId });
-    },
-    [chatId, isActive, listenToStreamMutation]
-  );
+    listenToStreamMutation.mutate({ chatId });
+  }, [chatId, isActive, listenToStreamMutation]);
 
   return {
     // Mutation objects
