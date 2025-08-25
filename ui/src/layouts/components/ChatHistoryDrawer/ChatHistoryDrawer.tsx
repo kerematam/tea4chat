@@ -342,22 +342,14 @@ const ChatHistoryDrawer = ({
 
   return (
     <>
-      <Drawer anchor="right" open={open} onClose={onClose}>
-        {/* <Box
-          sx={{
-            p: 2,
-            pb: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-            width: 300,
-            maxWidth: 300,
-          }}
-        >
-          <HistoryOutlinedIcon />
-          <Typography variant="h6">History</Typography>
-        </Box>
-         */}
+      <Drawer
+        anchor="right"
+        open={open}
+        onClose={onClose}
+        PaperProps={{
+          sx: { width: 300, maxWidth: 300, flexShrink: 0 },
+        }}
+      >
         {/* New Chat Button */}
         <Box sx={{ px: 2, pt: 1, width: "100%" }}>
           <Button
