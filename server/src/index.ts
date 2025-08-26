@@ -35,12 +35,6 @@ app.route("/api/auth", authRoutes);
 // });
 
 // tRPC handler with Hono
-// Add streaming-friendly headers for tRPC routes before the handler
-app.use("/trpc/*", async (c, next) => {
-  c.header("X-Accel-Buffering", "no");
-
-  await next();
-});
 
 app.use(
   "/trpc/*",

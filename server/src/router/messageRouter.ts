@@ -28,7 +28,7 @@ import {
   createStreamId,
   streamAbortRegistry,
 } from "../lib/stream-abort-registry";
-import { withOwnerProcedure } from "../procedures";
+import { streamingProcedure, withOwnerProcedure } from "../procedures/base";
 import { router } from "../trpc";
 import { publicMessageSelect, type PublicMessage } from "./message.public";
 
@@ -170,7 +170,7 @@ const determineModelToUse = async ({
 
 export const messageRouter = router({
   // Send a message and stream AI response in one mutation
-  sendWithStream: withOwnerProcedure
+  sendWithStream: streamingProcedure
     .input(
       z.object({
         chatId: z.string().optional(),
@@ -645,7 +645,7 @@ export const messageRouter = router({
   // Get active streams for debugging/monitoring
 
   // Listen to Redis message chunk stream for reconnection/page refresh scenarios
-  listenToMessageChunkStream: withOwnerProcedure
+  listenToMessageChunkStream: streamingProcedure
     .input(
       z.object({
         chatId: z.string(),
