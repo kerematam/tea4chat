@@ -1,12 +1,12 @@
-import { trpcServer } from '@hono/trpc-server';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
+import { trpcServer } from "@hono/trpc-server";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Context } from "./context";
 import { appRouter } from "./router";
 
-import { checkRedisHealth } from './lib/redis';
-import { pinoLogger } from './middleware/pino-logger';
-import authRoutes from './router/authRoutes';
+import { checkRedisHealth } from "./lib/redis";
+import { pinoLogger } from "./middleware/pino-logger";
+import authRoutes from "./router/authRoutes";
 
 const app = new Hono();
 const port = process.env.PORT || 3000;
@@ -28,7 +28,7 @@ if (isNonProd) {
 }
 
 // app.use('*', requestId());
-app.use('*', pinoLogger());
+app.use("*", pinoLogger());
 app.route("/api/auth", authRoutes);
 // app.use('*', (c, next) => {
 //   return next();
@@ -36,41 +36,48 @@ app.route("/api/auth", authRoutes);
 
 // tRPC handler with Hono
 // Add streaming-friendly headers for tRPC routes before the handler
-app.use('/trpc/*', async (c, next) => {
-  c.header('Cache-Control', 'no-cache, no-transform');
-  c.header('X-Accel-Buffering', 'no');
-  c.header('Vary', 'Accept-Encoding');
+app.use("/trpc/*", async (c, next) => {
+  c.header("X-Accel-Buffering", "no");
+
   await next();
 });
 
-app.use('/trpc/*', trpcServer({
-  router: appRouter,
-  createContext: async (opts, context) => {
-    const headerRequestId = context.req.raw.headers.get('x-request-id') || undefined;
-    const ctx: Context = {
-      requestId: headerRequestId,
-      req: { ...context.req, ...opts.req },
-      res: context.res,
-      honoContext: context
-    };
+app.use(
+  "/trpc/*",
+  trpcServer({
+    router: appRouter,
+    createContext: async (opts, context) => {
+      const headerRequestId =
+        context.req.raw.headers.get("x-request-id") || undefined;
+      const ctx: Context = {
+        requestId: headerRequestId,
+        req: { ...context.req, ...opts.req },
+        res: context.res,
+        honoContext: context,
+      };
 
-    return ctx;
-  }
-}));
+      return ctx;
+    },
+  })
+);
 
 // Add Redis health check during startup
 async function startupHealthCheck() {
-  console.log('🔍 Performing startup health checks...');
-  
+  console.log("🔍 Performing startup health checks...");
+
   // Check Redis health
   const redisHealth = await checkRedisHealth();
-  
+
   if (!redisHealth.redis || !redisHealth.pubsub) {
-    console.error('❌ Redis health check failed:', redisHealth.error);
-    console.log('⚠️  Application will start but Redis-dependent features may not work properly');
-    console.log('📝 Consider implementing graceful degradation for Redis-dependent features');
+    console.error("❌ Redis health check failed:", redisHealth.error);
+    console.log(
+      "⚠️  Application will start but Redis-dependent features may not work properly"
+    );
+    console.log(
+      "📝 Consider implementing graceful degradation for Redis-dependent features"
+    );
   } else {
-    console.log('✅ Redis health check passed - all connections working');
+    console.log("✅ Redis health check passed - all connections working");
   }
 }
 
@@ -89,23 +96,23 @@ export default {
 };
 
 // Enhanced error handling for development
-if (process.env.NODE_ENV === 'development') {
+if (process.env.NODE_ENV === "development") {
   // Increase stack trace limit
   Error.stackTraceLimit = 100;
-  
+
   // Handle unhandled promise rejections
-  process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.on("unhandledRejection", (reason, promise) => {
+    console.error("Unhandled Rejection at:", promise, "reason:", reason);
     // Log the full stack trace
     if (reason instanceof Error) {
-      console.error('Full stack trace:', reason.stack);
+      console.error("Full stack trace:", reason.stack);
     }
   });
 
   // Handle uncaught exceptions
-  process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-    console.error('Full stack trace:', error.stack);
+  process.on("uncaughtException", (error) => {
+    console.error("Uncaught Exception:", error);
+    console.error("Full stack trace:", error.stack);
     // Don't exit in development to keep debugging
   });
 }
