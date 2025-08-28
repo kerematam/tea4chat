@@ -1,3 +1,4 @@
+name: tea4chat-external-fullstack
 services:
   postgres:
     image: postgres:17-alpine

@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { PostHogProvider } from "posthog-js/react";
 // import { initializeApp } from "firebase/app";
 // import { getAnalytics } from "firebase/analytics";
 // import { getAuth, GoogleAuthProvider } from "firebase/auth";
@@ -31,6 +32,16 @@ if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_MOCKS === "true") {
 const root = createRoot(document.getElementById("root")!);
 root.render(
   <React.StrictMode>
-    <App />
+    <PostHogProvider
+      apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY}
+      options={{
+        api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
+        defaults: '2025-05-24',
+        capture_exceptions: true, // This enables capturing exceptions using Error Tracking, set to false if you don't want this
+        debug: import.meta.env.MODE === "development",
+      }}
+    >
+      <App />
+    </PostHogProvider>
   </React.StrictMode>
 );

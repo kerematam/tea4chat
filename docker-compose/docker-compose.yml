@@ -16,10 +16,14 @@ services:
     build:
       context: ../ui
       dockerfile: Dockerfile
+      secrets:
+        - frontend_env
     expose:
       - "80"
     networks:
       - app_network
+    env_file:
+      - ./envs/frontend.env
 
   server:
     build:
@@ -53,7 +57,8 @@ services:
       - ./services/postgres-data-prod:/var/lib/postgresql/data
     healthcheck:
       # DO NOT FORGET TO CHANGE THIS ACCORDING TO THE DB NAME IN THE envs/server.env
-      test: ["CMD-SHELL", "pg_isready -U postgres -d tea4chat-prod"]
+      # test: ["CMD-SHELL", "pg_isready -U postgres -d tea4chat-prod"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tea4chat"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -80,3 +85,7 @@ networks:
 
 volumes:
   redis_data: 
+
+secrets:
+  frontend_env:
+    file: ./envs/frontend.env
