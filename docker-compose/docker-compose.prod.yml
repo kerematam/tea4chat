@@ -19,6 +19,8 @@ services:
     build:
       context: ../ui
       dockerfile: Dockerfile
+      secrets:
+        - frontend_env
     expose:
       - "80"
     networks:
@@ -95,3 +97,7 @@ networks:
 
 volumes:
   redis_data:
+
+secrets:
+  frontend_env:
+    file: ./envs/frontend.env
